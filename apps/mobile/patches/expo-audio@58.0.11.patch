@@ -1,0 +1,42 @@
+diff --git a/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt b/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
+index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..e1e49651a9c4297f1db657eef3668530e15af667 100644
+--- a/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
++++ b/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
+@@ -291,15 +291,13 @@ class AudioControlsService : MediaSessionService() {
+ 
+     val playable = currentPlayable
+ 
++    // Blednify patch: previous/next track are NOT custom buttons. A custom button in SLOT_BACK/SLOT_FORWARD
++    // makes Media3 drop ACTION_SKIP_TO_PREVIOUS/NEXT from the platform PlaybackState, and the framework then
++    // ignores skip requests from media keys, Bluetooth, and OEM media widgets (e.g. Samsung). The standard
++    // player commands (COMMAND_SEEK_TO_PREVIOUS/NEXT, granted in AudioMediaSessionCallback) render the same
++    // buttons in the system UI and reach the playlist through the session player.
+     if (currentOptions?.showPreviousTrack == true && playable?.supportsPreviousTrack == true) {
+-      mediaButtons.add(
+-        CommandButton.Builder(CommandButton.ICON_PREVIOUS)
+-          .setDisplayName("Previous Track")
+-          .setEnabled(true)
+-          .setSessionCommand(SessionCommand(ACTION_PREVIOUS_TRACK, Bundle.EMPTY))
+-          .setSlots(CommandButton.SLOT_BACK)
+-          .build()
+-      )
++      // Standard player command; see above.
+     } else if (currentOptions?.showSeekBackward == true) {
+       val backwardSeconds = seekIntervalMs(currentOptions?.seekBackwardIntervalSeconds) / 1000.0
+       mediaButtons.add(
+@@ -334,14 +332,7 @@ class AudioControlsService : MediaSessionService() {
+     )
+ 
+     if (currentOptions?.showNextTrack == true && playable?.supportsNextTrack == true) {
+-      mediaButtons.add(
+-        CommandButton.Builder(CommandButton.ICON_NEXT)
+-          .setDisplayName("Next Track")
+-          .setEnabled(true)
+-          .setSessionCommand(SessionCommand(ACTION_NEXT_TRACK, Bundle.EMPTY))
+-          .setSlots(CommandButton.SLOT_FORWARD)
+-          .build()
+-      )
++      // Standard player command; see above.
+     } else if (currentOptions?.showSeekForward == true) {
+       val forwardSeconds = seekIntervalMs(currentOptions?.seekForwardIntervalSeconds) / 1000.0
+       mediaButtons.add(

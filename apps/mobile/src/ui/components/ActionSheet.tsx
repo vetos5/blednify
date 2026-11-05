@@ -95,8 +95,11 @@ export function ActionSheetHost() {
     },
   });
 
+  // The keyboard lift is a layout prop, not a transform: on Android touches are hit-tested against the
+  // un-transformed layout, so a translated sheet left its buttons unreachable behind the keyboard.
   const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: offset.get() - keyboard.get() }],
+    bottom: keyboard.get(),
+    transform: [{ translateY: offset.get() }],
   }));
   const scrimStyle = useAnimatedStyle(() => ({
     opacity: interpolate(offset.get(), [0, screenH * 0.5], [1, 0], 'clamp'),
