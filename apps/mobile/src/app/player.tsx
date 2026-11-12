@@ -1,7 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentRef, type RefObject } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import {
   GestureDetector,
@@ -17,6 +17,7 @@ import Animated, {
   useSharedValue,
   withSpring,
   withTiming,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -59,6 +60,76 @@ function dismiss() {
   if (router.canGoBack()) router.back();
 }
 
+/** Finishes a pull-down: closes past the distance or on a flick, otherwise springs back. */
+function settleSheet(y: SharedValue<number>, translationY: number, velocityY: number, screenH: number) {
+  'worklet';
+  if (translationY > DISMISS_DISTANCE || velocityY > 1100) {
+    y.set(
+      withTiming(screenH, { duration: 200, easing: Easing.out(Easing.quad) }, (done) => {
+        if (done) scheduleOnRN(dismiss);
+      }),
+    );
+  } else {
+    y.set(withSpring(0, { damping: 22, stiffness: 260 }));
+  }
+}
+
+/**
+ * Web pull-down-to-close. On web the scroll view isn't wrapped in a gesture detector: the detector puts
+ * `touch-action: none` on it, so touch never scrolled the page. The browser scrolls natively instead, and
+ * a drag that starts at the top and moves down cancels its touchmoves and drags the sheet.
+ */
+function useWebPullToDismiss(
+  ref: RefObject<ComponentRef<typeof View> | null>,
+  scrollY: SharedValue<number>,
+  y: SharedValue<number>,
+  screenH: number,
+) {
+  useEffect(() => {
+    const el = ref.current as unknown as HTMLElement | null;
+    if (!IS_WEB || !el?.addEventListener) return;
+    let startY = 0;
+    let lastY = 0;
+    let lastT = 0;
+    let velocity = 0;
+    let claim: 'none' | 'pull' | 'scroll' = 'none';
+    const onStart = (e: TouchEvent) => {
+      startY = lastY = e.touches[0]?.clientY ?? 0;
+      lastT = e.timeStamp;
+      velocity = 0;
+      claim = e.touches.length > 1 ? 'scroll' : 'none';
+    };
+    const onMove = (e: TouchEvent) => {
+      const touchY = e.touches[0]?.clientY ?? lastY;
+      const dy = touchY - startY;
+      if (claim === 'none') {
+        if (scrollY.get() > 1 || dy < 0) claim = 'scroll';
+        else if (dy > 0) claim = 'pull';
+      }
+      if (claim !== 'pull') return;
+      if (e.cancelable) e.preventDefault();
+      if (e.timeStamp > lastT) velocity = ((touchY - lastY) / (e.timeStamp - lastT)) * 1000;
+      lastY = touchY;
+      lastT = e.timeStamp;
+      y.set(Math.max(0, dy));
+    };
+    const onEnd = () => {
+      if (claim === 'pull') settleSheet(y, lastY - startY, velocity, screenH);
+      claim = 'none';
+    };
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd);
+    el.addEventListener('touchcancel', onEnd);
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onEnd);
+    };
+  }, [ref, scrollY, y, screenH]);
+}
+
 /** Immersive screen over artwork: stays dark in light themes. */
 export default function PlayerScreen() {
   const wide = useIsWide();
@@ -78,6 +149,7 @@ function PlayerScreenContent() {
   const scrollY = useSharedValue(0);
   const listDrag = useSharedValue(false);
   const scrollRef = useRef<Animated.ScrollView>(null);
+  const sheetRef = useRef<ComponentRef<typeof View>>(null);
   // The first page fills the scroll viewport exactly; window height can disagree with it on Android.
   const [pageH, setPageH] = useState(screenH);
 
@@ -99,19 +171,12 @@ function PlayerScreenContent() {
     onDeactivate: (e) => {
       'worklet';
       if (listDrag.get()) return;
-      if (e.translationY > DISMISS_DISTANCE || e.velocityY > 1100) {
-        y.set(
-          withTiming(screenH, { duration: 200, easing: Easing.out(Easing.quad) }, (done) => {
-            if (done) scheduleOnRN(dismiss);
-          }),
-        );
-      } else {
-        y.set(withSpring(0, { damping: 22, stiffness: 260 }));
-      }
+      settleSheet(y, e.translationY, e.velocityY, screenH);
     },
   });
 
   const gesture = useSimultaneousGestures(pan, native);
+  useWebPullToDismiss(sheetRef, scrollY, y, screenH);
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (e) => {
@@ -125,30 +190,35 @@ function PlayerScreenContent() {
     borderRadius: IS_WEB ? (y.get() > 0 ? radius.xl : 0) : interpolate(y.get(), [0, 80], [0, radius.xl], 'clamp'),
   }));
 
+  const page = current ? (
+    <Animated.ScrollView
+      ref={scrollRef}
+      bounces={false}
+      overScrollMode="never"
+      scrollEventThrottle={16}
+      onScroll={scrollHandler}
+      showsVerticalScrollIndicator={false}
+      onLayout={(e) => setPageH(Math.round(e.nativeEvent.layout.height))}
+      style={styles.scrollView}
+      contentContainerStyle={styles.scrollContent}>
+      <NowPlaying
+        track={current}
+        pageHeight={pageH}
+        onScrollToLyrics={() => {
+          scrollRef.current?.scrollTo({ y: pageH, animated: true });
+        }}
+      />
+    </Animated.ScrollView>
+  ) : null;
+
   return (
-    <Animated.View style={[styles.sheet, sheetStyle]}>
+    <Animated.View ref={sheetRef} style={[styles.sheet, sheetStyle]}>
       <Backdrop uri={current?.artworkUri ?? null} />
-      {current ? (
-        <GestureDetector gesture={gesture}>
-          <Animated.ScrollView
-            ref={scrollRef}
-            bounces={false}
-            overScrollMode="never"
-            scrollEventThrottle={16}
-            onScroll={scrollHandler}
-            showsVerticalScrollIndicator={false}
-            onLayout={(e) => setPageH(Math.round(e.nativeEvent.layout.height))}
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}>
-            <NowPlaying
-              track={current}
-              pageHeight={pageH}
-              onScrollToLyrics={() => {
-                scrollRef.current?.scrollTo({ y: pageH, animated: true });
-              }}
-            />
-          </Animated.ScrollView>
-        </GestureDetector>
+      {page && IS_WEB ? (
+        // Web scrolls natively and closes via useWebPullToDismiss: the detector would block touch scrolling.
+        page
+      ) : page ? (
+        <GestureDetector gesture={gesture}>{page}</GestureDetector>
       ) : (
         <GestureDetector gesture={pan}>
           <View style={styles.empty}>
