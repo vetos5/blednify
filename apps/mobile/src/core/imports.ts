@@ -29,6 +29,9 @@ export type ImportJob = {
   name: string | null;
   description: string | null;
   owner: string | null;
+  /** Artist / album the admin set for every song (older servers omit them). */
+  artist?: string | null;
+  album?: string | null;
   hasCover: boolean;
   warning: string | null;
   error: string | null;
@@ -72,8 +75,9 @@ function put(job: ImportJob, playlistId?: string | null) {
 }
 
 /** Starts an import on the server and follows it. Throws with the server's reason (bad link, no yt-dlp, …). */
-export async function startImport(url: string): Promise<ImportJob> {
-  const job = await adminRequest<ImportJob>('POST', '/api/imports', { body: { url: url.trim() }, timeoutMs: 30_000 });
+export async function startImport(url: string, opts: { artist?: string; album?: string } = {}): Promise<ImportJob> {
+  const body = { url: url.trim(), artist: opts.artist?.trim() || undefined, album: opts.album?.trim() || undefined };
+  const job = await adminRequest<ImportJob>('POST', '/api/imports', { body, timeoutMs: 30_000 });
   writeIds(K_JOBS, [...readIds(K_JOBS).filter((id) => id !== job.id), job.id]);
   put(job);
   void poll();

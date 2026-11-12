@@ -659,6 +659,18 @@ export function removeKeysFromQueue(keys: ReadonlySet<string>) {
   syncWindow();
 }
 
+/** Replaces the info (title, artist, …) of queued tracks with newer copies; playback is untouched. */
+export function updateQueueTracks(fresh: ReadonlyMap<string, AppTrack>) {
+  if (!entries.some((e) => fresh.has(e.track.key))) return;
+  const swap = (e: Entry): Entry => {
+    const t = fresh.get(e.track.key);
+    return t ? { ...e, track: t } : e;
+  };
+  entries = entries.map(swap);
+  original = original.map(swap);
+  publishQueue();
+}
+
 // --- Public imperative API -------------------------------------------------------------------
 
 const isActive = () => wantPlay || S().isPlaying;

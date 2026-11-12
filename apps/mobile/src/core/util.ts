@@ -13,6 +13,25 @@ function fnv1a(input: string | Uint8Array, seed: number): number {
 
 const hex8 = (n: number) => n.toString(16).padStart(8, '0');
 
+/**
+ * Matching key of an artist name: case, accents, punctuation and spacing are ignored, ё = е (й stays й).
+ * Same rule as the server (apps/server/src/artists.ts nameKey).
+ */
+export function artistKey(name: string): string {
+  const s = name
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/й/g, '\u0001')
+    .normalize('NFD')
+    .replace(/\p{M}+/gu, '')
+    .replace(/\u0001/g, 'й');
+  return s.replace(/[^\p{L}\p{N}]+/gu, '') || s.replace(/\s+/g, ' ').trim();
+}
+
+/** Id of an on-device artist: spellings with the same `artistKey` are one artist. */
+export const localArtistId = (name: string) => `l:${hashHex(artistKey(name))}`;
+
 /** Fast non-cryptographic 64-bit-ish hex hash (two FNV-1a lanes). */
 export function hashHex(input: string | Uint8Array): string {
   return hex8(fnv1a(input, 0x811c9dc5)) + hex8(fnv1a(input, 0x050c5d1f));

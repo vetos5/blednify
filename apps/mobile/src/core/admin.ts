@@ -2,8 +2,8 @@ import { getDocumentAsync } from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { create, useStore } from 'zustand';
 
-import { ApiError, toApiError, type ApiTrack } from './api';
-import { pruneGoneTracks } from './prune';
+import { ApiError, toApiError, type ApiArtist, type ApiTrack } from './api';
+import { pruneGoneTracks, refreshTrackCopies } from './prune';
 import { queryClient } from './query-client';
 import { getServerBase, normalizeServerUrl, settingsStore } from './settings';
 import type { AppTrack } from './types';
@@ -11,7 +11,7 @@ import { errorMessage, extForMime, extOf, randomId } from './util';
 
 /** Admin requests carry only the admin token: the server accepts writes without the listen token. */
 export async function adminRequest<T>(
-  method: 'POST' | 'DELETE',
+  method: 'POST' | 'PATCH' | 'DELETE',
   path: string,
   opts: { base?: string; token?: string; timeoutMs?: number; body?: unknown } = {},
 ): Promise<T> {
@@ -93,6 +93,55 @@ export async function deleteFromServer(track: AppTrack): Promise<void> {
   await adminRequest<void>('DELETE', `/api/tracks/${encodeURIComponent(track.id)}`);
   refreshCatalog();
   await pruneGoneTracks(true);
+}
+
+// --- Track info / artist merges ------------------------------------------------------------
+
+export type TrackEdit = { title?: string | null; artist?: string | null; album?: string | null };
+
+/** After an edit or merge: refetch the catalog and update the copies in likes, playlists, recents and the queue. */
+async function afterInfoChange() {
+  refreshCatalog();
+  await refreshTrackCopies();
+}
+
+/** Changes a server track's title/artist/album (the file keeps its tags). null restores a field from the tags. */
+export async function editTrackInfo(track: AppTrack, edit: TrackEdit): Promise<ApiTrack> {
+  const r = await adminRequest<ApiTrack>('PATCH', `/api/tracks/${encodeURIComponent(track.id)}`, { body: edit });
+  await afterInfoChange();
+  return r;
+}
+
+export type ApiArtistDetail = ApiArtist & { albums: unknown[]; tracks: ApiTrack[] };
+export type MergeSuggestion = { a: ApiArtist; b: ApiArtist; score: number };
+
+/** Shows the artists as one (the first keeps its page), named `name`. */
+export async function mergeArtists(ids: string[], name: string): Promise<ApiArtistDetail> {
+  const r = await adminRequest<ApiArtistDetail>('POST', '/api/admin/artists/merge', { body: { ids, name } });
+  await afterInfoChange();
+  return r;
+}
+
+export async function renameArtist(id: string, name: string): Promise<ApiArtistDetail> {
+  const r = await adminRequest<ApiArtistDetail>('POST', `/api/admin/artists/${encodeURIComponent(id)}/rename`, { body: { name } });
+  await afterInfoChange();
+  return r;
+}
+
+export async function unmergeArtist(id: string): Promise<ApiArtistDetail> {
+  const r = await adminRequest<ApiArtistDetail>('POST', `/api/admin/artists/${encodeURIComponent(id)}/unmerge`);
+  await afterInfoChange();
+  return r;
+}
+
+export async function fetchMergeSuggestions(): Promise<MergeSuggestion[]> {
+  const r = await adminRequest<{ items: MergeSuggestion[] }>('POST', '/api/admin/artists/suggestions', { timeoutMs: 30_000 });
+  return r.items;
+}
+
+export async function dismissMergeSuggestion(aId: string, bId: string): Promise<void> {
+  await adminRequest<void>('POST', '/api/admin/artists/suggestions/dismiss', { body: { ids: [aId, bId] } });
+  void queryClient.invalidateQueries({ queryKey: ['merge-suggestions'] });
 }
 
 // --- Uploads ---------------------------------------------------------------------------------

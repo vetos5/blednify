@@ -3,9 +3,10 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { player, useArtist, type AlbumView, type AppTrack } from '@/core';
+import { player, useArtist, useSettings, type AlbumView, type AppTrack } from '@/core';
 import { Backdrop } from '@/ui/components/Backdrop';
 import { AlbumCard } from '@/ui/components/AlbumCard';
+import { openArtistAdmin } from '@/ui/components/ArtistAdmin';
 import { Artwork } from '@/ui/components/Artwork';
 import { DetailHeader } from '@/ui/components/DetailHeader';
 import { EmptyState } from '@/ui/components/EmptyState';
@@ -38,6 +39,8 @@ export default function ArtistScreen() {
   const chromeInset = useChromeInset('detail');
   const cardW = useRailCardWidth();
   const { artist, albums, tracks, isLoading } = useArtist(params.id, origin);
+  const { adminMode, adminToken } = useSettings();
+  const admin = adminMode && !!adminToken;
 
   if (!artist) {
     return (
@@ -82,14 +85,19 @@ export default function ArtistScreen() {
               onShuffle={tracks.length ? () => player.playTracks(tracks, undefined, { shuffle: true }) : undefined}
               actions={
                 artist.origin === 'remote' ? (
-                  <IconButton
-                    icon="share-outline"
-                    label="Share artist"
-                    variant="filled"
-                    onPress={() =>
-                      openShare({ target: { kind: 'artist', id: artist.id }, title: artist.name, subtitle: 'Artist', artworkUri: backdrop })
-                    }
-                  />
+                  <>
+                    <IconButton
+                      icon="share-outline"
+                      label="Share artist"
+                      variant="filled"
+                      onPress={() =>
+                        openShare({ target: { kind: 'artist', id: artist.id }, title: artist.name, subtitle: 'Artist', artworkUri: backdrop })
+                      }
+                    />
+                    {admin ? (
+                      <IconButton icon="ellipsis-horizontal" label="Artist options" variant="filled" onPress={() => openArtistAdmin(artist)} />
+                    ) : null}
+                  </>
                 ) : undefined
               }
             />

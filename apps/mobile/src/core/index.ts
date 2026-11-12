@@ -81,14 +81,21 @@ export {
   checkAdmin,
   clearUploads,
   deleteFromServer,
+  dismissMergeSuggestion,
+  editTrackInfo,
+  mergeArtists,
   pickAndUpload,
+  renameArtist,
+  unmergeArtist,
   rescanServer,
   retryUpload,
   uploadLocalTracks,
   useUploads,
+  type TrackEdit,
   type UploadItem,
   type UploadStatus,
 } from './admin';
+export { useArtistSearch, useMergeSuggestions, type ArtistPair } from './artist-admin';
 
 // Playlist imports (Spotify / SoundCloud / YouTube links, downloaded by the server)
 export {

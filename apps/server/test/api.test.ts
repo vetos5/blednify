@@ -58,6 +58,7 @@ describe("scan", () => {
       bitrate: 128,
       hasArtwork: true,
       addedAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+      edited: false,
     });
     const loose = await json<Track>(`/api/tracks/${idOf("loose/Zed - Untagged Song.wav")}`);
     expect(loose).toMatchObject({ title: "Untagged Song", artist: "Zed", album: "Unknown Album", hasArtwork: false });

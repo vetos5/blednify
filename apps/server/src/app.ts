@@ -15,7 +15,7 @@ import type { Config } from "./config";
 import { openDb, type Db } from "./db";
 import { audioMime } from "./ids";
 import { Importer, LinkError } from "./imports/importer";
-import { Library, toTrack } from "./library";
+import { Library, LibraryError, toTrack } from "./library";
 import { userLibraryRoutes } from "./user-library";
 import { LyricsService } from "./lyrics";
 import { InvalidAudioError, Scanner } from "./scanner";
@@ -45,6 +45,8 @@ export function createContext(config: Config): AppContext {
   const lyrics = new LyricsService(db, { online: config.lyricsOnline, lrclibUrl: config.lrclibUrl });
   const claims = new PathClaimer(config.musicDir, lib);
   const importer = new Importer({ config, db, lib, scanner, claims });
+  // Derived artist/album data follows the current rules (and fills in after a schema upgrade).
+  lib.rebuildAggregates();
   return { config, db, lib, scanner, art, lyrics, claims, importer };
 }
 
@@ -55,7 +57,7 @@ const IMMUTABLE_PRIVATE = "private, max-age=31536000, immutable";
 const ART_CACHE_PRIVATE = "private, max-age=2592000";
 const ID_RE = /^[0-9a-f]{16}$/;
 
-const fail = (status: 400 | 401 | 403 | 404 | 413 | 415 | 422, error: string): never => {
+const fail = (status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 422, error: string): never => {
   throw new HTTPException(status, { message: error });
 };
 
@@ -172,7 +174,7 @@ export function createApp(ctx: AppContext): Hono {
   app.use(
     cors({
       origin: "*",
-      allowMethods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowHeaders: ["Authorization", "Content-Type", "X-Library-Key", "Range", "If-None-Match", "If-Range"],
       exposeHeaders: ["Content-Length", "Content-Range", "Accept-Ranges", "ETag"],
       maxAge: 86400,
@@ -182,6 +184,7 @@ export function createApp(ctx: AppContext): Hono {
 
   app.onError((err, c) => {
     if (err instanceof HTTPException) return c.json({ error: err.message || "error" }, err.status);
+    if (err instanceof LibraryError) return c.json({ error: err.message }, err.status);
     console.error(`[error] ${c.req.method} ${c.req.path}:`, err);
     return c.json({ error: "internal server error" }, 500);
   });
@@ -253,6 +256,13 @@ export function createApp(ctx: AppContext): Hono {
   app.get("/api/tracks/gone", (c) => {
     const { ids } = query(c, goneQuery);
     return c.json({ gone: lib.goneIds([...new Set(ids)]) });
+  });
+
+  // Current info of tracks the app keeps copies of (likes, playlists), so admin edits and artist merges reach
+  // them. Unknown ids are left out.
+  app.get("/api/tracks/lookup", (c) => {
+    const { ids } = query(c, goneQuery);
+    return c.json({ items: lib.tracksByIds([...new Set(ids)]) });
   });
 
   app.get("/api/tracks/:id", (c) => {
@@ -362,6 +372,18 @@ export function createApp(ctx: AppContext): Hono {
     return c.body(null, 204);
   });
 
+  // Server-side fix of a track's info; the file keeps its tags. null / "" restores a field from the tags.
+  const editField = z.string().max(500).nullable().optional();
+  const editBody = z.object({ title: editField, artist: editField, album: editField });
+  app.patch("/api/tracks/:id", admin, async (c) => {
+    const id = param(c);
+    const body = editBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) fail(400, "expected JSON { title?, artist?, album? }");
+    const track = lib.editTrack(id, body.data!);
+    lyrics.forget(id);
+    return c.json(track);
+  });
+
   app.post("/api/rescan", admin, async (c) => {
     noIdleTimeout(c);
     return c.json(await scanner.scan(true));
@@ -371,14 +393,20 @@ export function createApp(ctx: AppContext): Hono {
   // Starting/cancelling needs the admin token; reading a job's progress is a normal (listen-token) read, so the
   // app can poll it and load its cover like any other image.
 
-  const importBody = z.object({ url: z.string().trim().min(1).max(2000) });
+  const importBody = z.object({
+    url: z.string().trim().min(1).max(2000),
+    // Shown as the artist / album of every imported song (e.g. a fan's SoundCloud uploads of one artist).
+    artist: z.string().trim().max(300).nullish(),
+    album: z.string().trim().max(300).nullish(),
+  });
 
   app.post("/api/imports", admin, async (c) => {
     const body = importBody.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) fail(400, "expected JSON { url }");
+    if (!body.success) fail(400, "expected JSON { url, artist?, album? }");
     if (!(await importer.isAvailable())) fail(422, "imports are unavailable: the server needs yt-dlp and ffmpeg");
     try {
-      return c.json(await importer.start(body.data!.url), 202);
+      const { url, artist, album } = body.data!;
+      return c.json(await importer.start(url, { artist: artist || null, album: album || null }), 202);
     } catch (err) {
       if (err instanceof LinkError) fail(422, err.message);
       throw err;
@@ -401,6 +429,34 @@ export function createApp(ctx: AppContext): Hono {
   app.get("/api/albums/:id", (c) => c.json(lib.getAlbum(param(c)) ?? fail(404, "album not found")));
   app.get("/api/artists", (c) => c.json(lib.listArtists(query(c, pageQuery))));
   app.get("/api/artists/:id", (c) => c.json(lib.getArtist(param(c)) ?? fail(404, "artist not found")));
+  // ---------- artist merges (admin) ----------
+  // POST like every admin route, so the admin token alone authorises them (see /api/admin/check).
+
+  const idList = z.array(z.string().regex(ID_RE)).min(2).max(20);
+  const nameBody = z.object({ name: z.string().trim().min(1).max(300) });
+  const parseBody = async <S extends z.ZodType>(c: Context, schema: S, shape: string): Promise<z.output<S>> => {
+    const r = schema.safeParse(await c.req.json().catch(() => null));
+    if (!r.success) fail(400, `expected JSON ${shape}`);
+    return r.data as z.output<S>;
+  };
+
+  app.post("/api/admin/artists/suggestions", admin, (c) => c.json({ items: lib.mergeSuggestions() }));
+  app.post("/api/admin/artists/suggestions/dismiss", admin, async (c) => {
+    const { ids } = await parseBody(c, z.object({ ids: idList.length(2) }), "{ ids: [a, b] }");
+    lib.dismissSuggestion(ids[0]!, ids[1]!);
+    return c.body(null, 204);
+  });
+  app.post("/api/admin/artists/merge", admin, async (c) => {
+    const { ids, name } = await parseBody(c, z.object({ ids: idList, name: z.string().trim().min(1).max(300) }), "{ ids, name }");
+    return c.json(lib.mergeArtists(ids, name));
+  });
+  app.post("/api/admin/artists/:id/rename", admin, async (c) => {
+    const id = param(c);
+    const { name } = await parseBody(c, nameBody, "{ name }");
+    return c.json(lib.renameArtist(id, name));
+  });
+  app.post("/api/admin/artists/:id/unmerge", admin, (c) => c.json(lib.unmergeArtist(param(c))));
+
   app.get("/api/search", (c) => {
     const { q, limit } = query(c, searchQuery);
     return c.json(lib.search(q, limit));

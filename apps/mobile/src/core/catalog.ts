@@ -247,7 +247,7 @@ export function useArtist(
 // ---------------------------------------------------------------------------------------------
 // Search
 
-function useDebounced<T>(value: T, ms: number): T {
+export function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
   useEffect(() => {
     const t = setTimeout(() => setV(value), ms);

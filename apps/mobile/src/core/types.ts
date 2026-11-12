@@ -20,6 +20,8 @@ export type AppTrack = {
   streamUri: string; // what the player loads: local file if present, else server stream URL
   localUri: string | null; // file:// when downloaded or imported, else null
   addedAt: string;
+  /** Server track whose info the admin edited (absent on older snapshots). */
+  edited?: boolean;
 };
 
 export type AlbumView = {
@@ -38,6 +40,10 @@ export type ArtistView = {
   id: string;
   origin: Origin;
   name: string;
+  /** Other spellings shown as this artist (server artists). */
+  aliases?: string[];
+  /** Other artists were merged into it (server artists). */
+  merged?: boolean;
   albumCount: number;
   trackCount: number;
   artworkUri: string | null;

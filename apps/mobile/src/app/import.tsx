@@ -10,6 +10,7 @@ import {
   retryImport,
   startImport,
   useAdminInfo,
+  useArtistSearch,
   useImports,
   useServerBase,
   useServerStatus,
@@ -19,6 +20,7 @@ import {
 } from '@/core';
 import { attempt, errorMessage } from '@/ui/actions';
 import { Backdrop } from '@/ui/components/Backdrop';
+import { Chip } from '@/ui/components/Chip';
 import { Icon } from '@/ui/components/Icon';
 import { IconButton } from '@/ui/components/IconButton';
 import { PlaylistArtwork } from '@/ui/components/PlaylistArtwork';
@@ -42,6 +44,8 @@ export default function ImportScreen() {
   const info = useAdminInfo();
   const imports = useImports();
   const [url, setUrl] = useState('');
+  const [artist, setArtist] = useState('');
+  const [album, setAlbum] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ready = adminMode && !!adminToken && !!serverUrl;
@@ -55,8 +59,10 @@ export default function ImportScreen() {
     setBusy(true);
     setError(null);
     try {
-      await startImport(url);
+      await startImport(url, { artist, album });
       setUrl('');
+      setArtist('');
+      setAlbum('');
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -94,6 +100,37 @@ export default function ImportScreen() {
             editable={ready}
             style={styles.input}
           />
+          <View style={styles.options}>
+            <Text variant="micro">OPTIONAL</Text>
+            <TextInput
+              value={artist}
+              onChangeText={setArtist}
+              placeholder="Artist for every song"
+              placeholderTextColor={colors.textTertiary}
+              autoCorrect={false}
+              selectionColor={colors.accent}
+              cursorColor={colors.accent}
+              editable={ready}
+              style={styles.input}
+            />
+            {ready ? <ArtistChips query={artist} onPick={setArtist} /> : null}
+            <TextInput
+              value={album}
+              onChangeText={setAlbum}
+              placeholder="Album for every song"
+              placeholderTextColor={colors.textTertiary}
+              autoCorrect={false}
+              selectionColor={colors.accent}
+              cursorColor={colors.accent}
+              editable={ready}
+              style={styles.input}
+            />
+            <Text variant="caption">
+              Set an artist for songs uploaded by someone else, like a fan’s SoundCloud uploads of unreleased tracks: every
+              song goes under that artist, and “Artist - ” is dropped from titles. Without an album, a SoundCloud set’s
+              songs get the set’s name and a single song becomes a single.
+            </Text>
+          </View>
           {error ? <Warn text={error} danger /> : null}
           {!ready ? (
             <Warn text={!serverUrl ? 'Set a server first.' : 'Turn on Admin mode and save the admin token in Settings.'} danger />
@@ -122,6 +159,22 @@ export default function ImportScreen() {
         ))}
       </ScrollView>
     </View>
+  );
+}
+
+/** Library artists matching what was typed, so imports land under an existing artist's spelling. */
+function ArtistChips({ query, onPick }: { query: string; onPick: (name: string) => void }) {
+  const styles = useStyles();
+  const typed = query.trim();
+  const { artists } = useArtistSearch(typed, 6);
+  const matches = typed ? artists.filter((a) => a.name !== typed) : [];
+  if (!matches.length) return null;
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.chips}>
+      {matches.map((a) => (
+        <Chip key={a.id} label={a.name} icon="person-outline" onPress={() => onPick(a.name)} />
+      ))}
+    </ScrollView>
   );
 }
 
@@ -184,8 +237,8 @@ function ImportCard({ entry }: { entry: ImportEntry }) {
             {job.name ?? job.url}
           </Text>
           <Text variant="caption" numberOfLines={2} color={job.state === 'failed' ? colors.danger : colors.textSecondary}>
-            {[source, job.owner].filter(Boolean).join(' · ')}
-            {source || job.owner ? '\n' : ''}
+            {[source, job.owner, job.artist ? `as ${job.artist}` : null].filter(Boolean).join(' · ')}
+            {source || job.owner || job.artist ? '\n' : ''}
             {summary(job)}
           </Text>
         </View>
@@ -274,6 +327,8 @@ const useStyles = makeStyles((colors) => ({
     fontWeight: '500',
   },
   warn: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  options: { gap: space.sm },
+  chips: { gap: space.sm },
   section: { paddingHorizontal: space.lg, paddingTop: space.xl, paddingBottom: space.sm },
   job: {
     marginHorizontal: space.lg,

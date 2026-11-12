@@ -3,6 +3,7 @@
  * Spotify has no downloadable audio: its tracks are matched on YouTube Music later. SoundCloud and YouTube
  * links are read with yt-dlp and downloaded directly.
  */
+import { nameKey, similarity, skeleton, splitCredit, SUGGEST_MIN } from "../artists";
 import { errorLine, run } from "./proc";
 
 export type SourceKind = "spotify" | "soundcloud" | "youtube";
@@ -413,13 +414,40 @@ export function bestThumb(info: YtInfo): string | null {
   return info.thumbnail ?? null;
 }
 
-/** "Artist - Title (Official Video)" → parts, for YouTube uploads without music metadata. */
-export function splitVideoTitle(title: string): { artist: string | null; title: string } {
+/**
+ * Drops upload noise from a title: "(Official Video)", "[unreleased]", "(snippet)", "(prod. X)", "prod by X",
+ * "free download", trailing #hashtags. Never returns an empty title.
+ */
+export function cleanTitle(title: string): string {
   const cleaned = title
-    .replace(/\s*[([](official|lyrics?|audio|video|music video|visuali[sz]er|hd|hq|4k|mv)[^)\]]*[)\]]/gi, "")
+    .replace(/\s*[([](?:official|lyrics?|audio|video|music video|visuali[sz]er|hd|hq|4k|mv|unreleased|snippet|leak(?:ed)?|prod\b|prod\.|produced by|free (?:download|dl)|out now|premiere)[^)\]]*[)\]]/gi, "")
+    .replace(/\s+(?:\||\/\/)?\s*(?:prod\.?|produced by)\s+[^()[\]]+$/i, "")
+    .replace(/\s+(?:unreleased|snippet|free (?:download|dl))\s*$/i, "")
+    .replace(/(?:\s+#[\p{L}\p{N}_]+)+\s*$/u, "")
+    .replace(/\s{2,}/g, " ")
     .trim();
+  return cleaned || title.trim();
+}
+
+/** "Artist - Title (Official Video)" → parts, for uploads without music metadata. */
+export function splitVideoTitle(title: string): { artist: string | null; title: string } {
+  const cleaned = cleanTitle(title);
   const m = /^(.+?)\s+[-–—]\s+(.+)$/.exec(cleaned);
   return m ? { artist: m[1]!.trim(), title: m[2]!.trim() } : { artist: null, title: cleaned };
+}
+
+/** True when an "X - Title" prefix names this artist (any spelling or script, features allowed). */
+export function prefixIsArtist(prefix: string, artist: string): boolean {
+  const first = splitCredit(prefix, true)[0];
+  if (!first) return false;
+  if (first.key === nameKey(artist)) return true;
+  return similarity(skeleton(first.name), skeleton(artist)) >= SUGGEST_MIN;
+}
+
+/** An imported title shown under `artist`: cleaned, and without an "Artist - " prefix naming that artist. */
+export function titleForArtist(title: string, artist: string): string {
+  const parts = splitVideoTitle(title);
+  return parts.artist && prefixIsArtist(parts.artist, artist) ? parts.title : cleanTitle(title);
 }
 
 export function artistsOf(info: YtInfo): string[] {
@@ -438,14 +466,15 @@ export async function resolveYtdlp(link: Extract<ParsedLink, { kind: "soundcloud
   const entries = info._type === "playlist" ? (info.entries ?? []).filter((e): e is YtInfo => !!e?.id) : [info];
   if (!entries.length) throw new LinkError("this playlist is empty or private");
   const isPlaylist = info._type === "playlist";
+  // A SoundCloud set (album, EP or playlist) becomes the album of its songs; a single song is its own single.
+  const setName = link.kind === "soundcloud" && isPlaylist && /\/sets\//.test(link.url) ? info.title?.trim() || null : null;
   const items: ResolvedItem[] = entries.map((e) => {
-    const fromTitle = link.kind === "youtube" && !e.track ? splitVideoTitle(e.title ?? "") : null;
-    const artists = fromTitle?.artist ? [fromTitle.artist] : artistsOf(e);
+    const fromTitle = !e.track && e.title ? splitVideoTitle(e.title) : null;
+    const artists = e.artists?.length || e.artist ? artistsOf(e) : fromTitle?.artist ? [fromTitle.artist] : artistsOf(e);
     return {
       title: e.track ?? fromTitle?.title ?? e.title ?? "",
       artists,
-      // SoundCloud set entries carry the set as their album (albums and EPs are sets too).
-      album: e.album ?? null,
+      album: e.album ?? setName,
       albumArtist: e.album_artist ?? null,
       year: e.release_year ?? null,
       trackNo: null,

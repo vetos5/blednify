@@ -7,7 +7,7 @@ import { removeTrackReferences, type LocalRow } from '../library';
 import { DIRS, deleteQuietly, ensureDir, fileAt } from '../paths';
 import { removeKeysFromQueue } from '../player/engine';
 import { invalidate, libKeys } from '../query-client';
-import { extForMime, extOf, hashHex, mimeForExt, randomId } from '../util';
+import { extForMime, extOf, hashHex, localArtistId, mimeForExt, randomId } from '../util';
 import { readTags, type ByteReader, type Tags } from './tags';
 
 const HEAD_CACHE_BYTES = 1 << 20;
@@ -137,7 +137,7 @@ async function importOne(asset: DocumentPickerAsset): Promise<boolean> {
     artist,
     album,
     album_id: `l:${hashHex(`${albumArtist.toLowerCase()}\u0000${album.toLowerCase()}`)}`,
-    artist_id: `l:${hashHex(artist.toLowerCase())}`,
+    artist_id: localArtistId(artist),
     duration_ms: durationMs,
     track_number: tags.trackNumber ?? null,
     disc_number: tags.discNumber ?? null,

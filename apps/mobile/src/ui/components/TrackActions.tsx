@@ -20,6 +20,7 @@ import {
 import { attempt, confirmDeleteLocal } from '../actions';
 import { nav } from '../nav';
 import { showSheet, showToast, type SheetAnchor } from '../overlay';
+import { openEditTrack } from './ArtistAdmin';
 import { confirm } from './ConfirmSheet';
 import { useColors } from '../theme';
 import { SheetAction, SheetHeader } from './ActionSheet';
@@ -125,6 +126,9 @@ function TrackActions({ track, context }: { track: AppTrack; context: TrackActio
             showToast('Uploading to server');
           }}
         />
+      ) : null}
+      {admin && track.origin === 'remote' ? (
+        <SheetAction icon="pencil-outline" label="Edit info" keepOpen onPress={() => openEditTrack(track)} />
       ) : null}
       {admin && track.origin === 'remote' ? (
         <SheetAction icon="trash-outline" label="Delete from server" destructive onPress={() => confirmDeleteFromServer(track)} />

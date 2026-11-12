@@ -23,6 +23,7 @@ import {
   resolveYtdlp,
   spotifyTrackCover,
   splitVideoTitle,
+  titleForArtist,
   ytdlpJson,
   type Resolved,
   type ResolvedItem,
@@ -54,6 +55,9 @@ export type ImportJob = {
   name: string | null;
   description: string | null;
   owner: string | null;
+  /** Set by the admin on import: every song is tagged with this artist / album. */
+  artist: string | null;
+  album: string | null;
   hasCover: boolean;
   /** Human-readable caveat (e.g. Spotify's 100-track limit without API credentials). */
   warning: string | null;
@@ -90,6 +94,8 @@ export class Importer {
     const rows = d.db.sql.query<{ doc: string }, []>("SELECT doc FROM imports ORDER BY created_at").all();
     for (const r of rows) {
       const job = JSON.parse(r.doc) as Stored;
+      job.artist ??= null;
+      job.album ??= null;
       this.jobs.set(job.id, job);
     }
   }
@@ -125,7 +131,7 @@ export class Importer {
     return this.ready;
   }
 
-  async start(url: string): Promise<ImportJob> {
+  async start(url: string, opts: { artist?: string | null; album?: string | null } = {}): Promise<ImportJob> {
     await parseLink(url); // validates (throws LinkError)
     const now = new Date().toISOString();
     const job: Stored = {
@@ -136,6 +142,8 @@ export class Importer {
       name: null,
       description: null,
       owner: null,
+      artist: opts.artist?.trim() || null,
+      album: opts.album?.trim() || null,
       hasCover: false,
       warning: null,
       error: null,
@@ -285,8 +293,8 @@ export class Importer {
         : null;
       job.plan = r.items;
       job.items = r.items.map((i) => ({
-        title: i.title || slugTitle(i.url) || "Unknown title",
-        artist: i.artists.join(", "),
+        title: (job.artist && i.title ? titleForArtist(i.title, job.artist) : i.title) || slugTitle(i.url) || "Unknown title",
+        artist: job.artist ?? i.artists.join(", "),
         state: "pending",
         track: null,
         reused: false,
@@ -312,11 +320,13 @@ export class Importer {
         item.state = "downloading";
         this.save(job);
         try {
-          const { track, reused } = await this.fetchItem(plan[i]!, job, signal, (title, artists) => {
-            if (title) item.title = title;
-            if (artists.length) item.artist = artists.join(", ");
+          const { track: fetched, reused } = await this.fetchItem(plan[i]!, job, signal, (title, artists) => {
+            if (title) item.title = job.artist ? titleForArtist(title, job.artist) : title;
+            if (artists.length) item.artist = job.artist ?? artists.join(", ");
             this.save(job);
           });
+          // A song imported before keeps its file: the admin's artist/album apply as a server-side edit.
+          const track = reused ? this.applyOverrides(fetched, job) : fetched;
           Object.assign(item, { state: "done", track, reused, error: null, title: track.title, artist: track.artist });
         } catch (err) {
           if (isCancelled(job)) return;
@@ -357,6 +367,18 @@ export class Importer {
     } catch {
       return false;
     }
+  }
+
+  private applyOverrides(track: Track, job: Stored): Track {
+    if (!job.artist && !job.album) return track;
+    const patch: { title?: string; artist?: string; album?: string } = {};
+    if (job.artist && track.artist !== job.artist) {
+      patch.artist = job.artist;
+      const title = titleForArtist(track.title, job.artist);
+      if (title !== track.title) patch.title = title;
+    }
+    if (job.album && track.album !== job.album) patch.album = job.album;
+    return Object.keys(patch).length ? this.d.lib.editTrack(track.id, patch) : track;
   }
 
   private knownTrack(source: string): Track | null {
@@ -401,11 +423,13 @@ export class Importer {
         item = { ...item, title: item.title || t, artists: item.artists.length ? item.artists : artistsOf(direct), durationMs: null };
       } else info = direct;
       if (info) {
-        const parsed = link.includes("youtu") && !info.track ? splitVideoTitle(info.title ?? "") : null;
+        const parsed = !info.track ? splitVideoTitle(info.title ?? "") : null;
+        const tagged = !!(info.artists?.length || info.artist);
         item = {
           ...item,
           title: info.track ?? parsed?.title ?? info.title ?? item.title,
-          artists: info.track || !parsed?.artist ? (info.artists?.length || info.artist ? artistsOf(info) : item.artists.length ? item.artists : artistsOf(info)) : [parsed.artist],
+          // Music metadata first; then "Artist - Title"; then what the playlist said; then the uploader.
+          artists: tagged || info.track || !parsed?.artist ? (tagged ? artistsOf(info) : item.artists.length ? item.artists : artistsOf(info)) : [parsed.artist],
           album: item.album ?? info.album ?? null,
           year: item.year ?? info.release_year ?? null,
         };
@@ -462,14 +486,16 @@ export class Importer {
       const codec = await this.codecOf(join(work, audio));
       const ext = codec === "mp3" ? "mp3" : "m4a";
       const out = join(work, `out.${ext}`);
-      const artists = item.artists.length ? item.artists : artistsOf(info);
+      const artists = job.artist ? [job.artist] : item.artists.length ? item.artists : artistsOf(info);
       const artist = artists.join(", ") || "Unknown Artist";
-      const album = item.album ?? info.album ?? null;
+      const title = job.artist ? titleForArtist(item.title, job.artist) : item.title;
+      // A SoundCloud song outside a set is a single: its album is its title.
+      const album = job.album ?? item.album ?? info.album ?? (job.source === "soundcloud" ? title : null);
       const meta: Record<string, string | number | null | undefined> = {
-        title: item.title,
+        title,
         artist,
         album,
-        album_artist: album ? (item.albumArtist ?? artists[0] ?? artist) : null,
+        album_artist: album ? (job.artist ?? item.albumArtist ?? artists[0] ?? artist) : null,
         date: item.year ?? info.release_year,
         track: item.trackNo,
         disc: item.discNo,
@@ -479,7 +505,7 @@ export class Importer {
       await this.tag(join(work, audio), cover && coverDemuxer ? { path: cover, demuxer: coverDemuxer } : null, out, codec, meta, signal);
 
       // 5. Move into the library like an upload.
-      const name = sanitizeFileName(`${artist} - ${item.title}.${ext}`);
+      const name = sanitizeFileName(`${artist} - ${title}.${ext}`);
       const dest = this.d.claims.claim(IMPORT_DIR, name);
       final.push(dest);
       const [track] = await this.d.scanner.indexUploads([{ tmp: out, final: dest }]);

@@ -18,6 +18,8 @@ export type ApiTrack = {
   bitrate: number | null;
   hasArtwork: boolean;
   addedAt: string;
+  /** The admin changed title/artist/album on the server (older servers omit it). */
+  edited?: boolean;
 };
 export type ApiAlbum = {
   id: string;
@@ -32,6 +34,10 @@ export type ApiAlbum = {
 export type ApiArtist = {
   id: string;
   name: string;
+  /** Other spellings shown as this artist (older servers omit it). */
+  aliases?: string[];
+  /** Other artists were merged into it by the admin. */
+  merged?: boolean;
   albumCount: number;
   trackCount: number;
   artworkTrackId: string | null;

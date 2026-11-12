@@ -15,6 +15,7 @@ export const nav = {
   lyrics: () => (isWideNow() ? setPanel('lyrics') : router.push('/lyrics')),
   upload: () => router.push('/upload'),
   importPlaylist: () => router.push('/import'),
+  duplicates: () => router.push('/duplicates'),
   settings: () => router.push('/settings'),
   appearance: () => router.push('/appearance'),
   appIcon: () => router.push('/app-icon'),

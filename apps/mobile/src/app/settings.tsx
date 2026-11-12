@@ -407,6 +407,13 @@ function AdminSection() {
               onPress={nav.importPlaylist}
             />
             <ListRow
+              leading={<RowIcon name="person-outline" />}
+              title="Duplicate artists"
+              subtitle="Merge artists written differently, like Пошлая Молли and Poshlaya Molly"
+              chevron
+              onPress={nav.duplicates}
+            />
+            <ListRow
               leading={<RowIcon name="refresh" />}
               title={rescanning ? 'Rescanning…' : 'Rescan server library'}
               subtitle="Pick up files added to the music folder directly"

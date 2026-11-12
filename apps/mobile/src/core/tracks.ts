@@ -60,6 +60,7 @@ export function fromApiTrack(t: ApiTrack, base: string): AppTrack {
     streamUri: trackStreamUrl(base, t.id),
     localUri: null,
     addedAt: t.addedAt,
+    edited: t.edited ?? false,
   };
 }
 
@@ -82,6 +83,8 @@ export function fromApiArtist(a: ApiArtist, base: string): ArtistView {
     id: a.id,
     origin: 'remote',
     name: a.name,
+    aliases: a.aliases ?? [],
+    merged: a.merged ?? false,
     albumCount: a.albumCount,
     trackCount: a.trackCount,
     artworkUri: a.artworkTrackId ? trackArtworkUrl(base, a.artworkTrackId) : null,

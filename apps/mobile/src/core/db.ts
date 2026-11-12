@@ -1,5 +1,7 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 
+import { localArtistId } from './util';
+
 /** Ordered schema migrations; index + 1 === PRAGMA user_version after applying. Append only. */
 const MIGRATIONS: readonly string[] = [
   `
@@ -87,7 +89,23 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (kind, id)
   );
   `,
+  // On-device artists: ids from the accent/punctuation-insensitive artist key (the JS step below re-keys rows).
+  `SELECT 1;`,
 ];
+
+/** JS steps that run right after the SQL migration with the same index, in its transaction. */
+const MIGRATION_STEPS: Record<number, (db: SQLiteDatabase) => Promise<void>> = {
+  3: async (db) => {
+    const rows = await db.getAllAsync<{ id: string; artist: string; artist_id: string }>('SELECT id, artist, artist_id FROM local_tracks');
+    for (const r of rows) {
+      const id = localArtistId(r.artist);
+      if (id === r.artist_id) continue;
+      await db.runAsync('UPDATE local_tracks SET artist_id = ? WHERE id = ?', id, r.id);
+      for (const table of ['likes', 'recents', 'playlist_tracks'])
+        await db.runAsync(`UPDATE ${table} SET track = json_set(track, '$.artistId', ?) WHERE key = ?`, id, `l:${r.id}`);
+    }
+  },
+};
 
 let dbPromise: Promise<SQLiteDatabase> | null = null;
 
@@ -100,6 +118,7 @@ async function open(): Promise<SQLiteDatabase> {
     const next = v + 1;
     await db.withTransactionAsync(async () => {
       await db.execAsync(sql);
+      await MIGRATION_STEPS[v]?.(db);
       await db.execAsync(`PRAGMA user_version = ${next}`);
     });
   }
