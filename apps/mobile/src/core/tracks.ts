@@ -61,6 +61,11 @@ export function fromApiTrack(t: ApiTrack, base: string): AppTrack {
     localUri: null,
     addedAt: t.addedAt,
     edited: t.edited ?? false,
+    bitrate: t.bitrate,
+    codec: t.codec ?? null,
+    sampleRate: t.sampleRate ?? null,
+    bitDepth: t.bitDepth ?? null,
+    lossless: t.lossless ?? false,
   };
 }
 

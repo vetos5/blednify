@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 export type Db = { sql: Database; fts: boolean };
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA = /* sql */ `
 -- Per-install backup of the app's playlists and likes. id is the sha256 of the install's secret key (the raw
@@ -44,7 +44,11 @@ CREATE TABLE IF NOT EXISTS tracks (
   tag_artist       TEXT NOT NULL DEFAULT '',
   tag_album        TEXT NOT NULL DEFAULT '',
   tag_album_artist TEXT NOT NULL DEFAULT '',
-  edited           INTEGER NOT NULL DEFAULT 0  -- 1 when track_edits has a row for it
+  edited           INTEGER NOT NULL DEFAULT 0, -- 1 when track_edits has a row for it
+  codec            TEXT,                       -- e.g. "MPEG 1 Layer 3", "AAC", "FLAC"
+  sample_rate      INTEGER,                    -- Hz
+  bit_depth        INTEGER,                    -- lossless only
+  lossless         INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS tracks_added ON tracks(added_at DESC, id);
 CREATE INDEX IF NOT EXISTS tracks_title ON tracks(title COLLATE NOCASE, id);
@@ -191,7 +195,19 @@ export function openDb(dataDir: string): Db {
 function migrate(sql: Database): void {
   const version = sql.query<{ user_version: number }, []>("PRAGMA user_version").get()!.user_version;
   const hasTracks = sql.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tracks'").get() != null;
-  if (!hasTracks || version >= 2) return;
+  if (!hasTracks || version >= 3) return;
+  if (version < 2) migrateV2(sql);
+  sql.transaction(() => {
+    // v3: stream details; mtime -1 makes the next scan read every file again to fill them in.
+    sql.exec("ALTER TABLE tracks ADD COLUMN codec TEXT");
+    sql.exec("ALTER TABLE tracks ADD COLUMN sample_rate INTEGER");
+    sql.exec("ALTER TABLE tracks ADD COLUMN bit_depth INTEGER");
+    sql.exec("ALTER TABLE tracks ADD COLUMN lossless INTEGER NOT NULL DEFAULT 0");
+    sql.exec("UPDATE tracks SET mtime_ms = -1");
+  })();
+}
+
+function migrateV2(sql: Database): void {
   sql.transaction(() => {
     // v2: file tags kept apart from effective values; artists gain key/aliases/merged (derived: rebuilt on boot).
     for (const col of ["tag_title", "tag_artist", "tag_album", "tag_album_artist"])

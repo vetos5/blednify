@@ -19,6 +19,12 @@ export type Track = {
   bitrate: number | null;
   hasArtwork: boolean;
   addedAt: string;
+  /** Codec as the file reports it ("MPEG 1 Layer 3", "AAC", "FLAC", …), null when unknown. */
+  codec: string | null;
+  sampleRate: number | null;
+  /** Bits per sample (lossless files only). */
+  bitDepth: number | null;
+  lossless: boolean;
   /** The admin changed title/artist/album on the server (the file's tags are untouched). */
   edited: boolean;
 };
@@ -79,6 +85,10 @@ export type TrackRow = {
   bitrate: number | null;
   has_art: number;
   added_at: string;
+  codec: string | null;
+  sample_rate: number | null;
+  bit_depth: number | null;
+  lossless: number;
   /** DB rows only (scanned rows take their tags from title/artist/album/album_artist). */
   edited?: number;
   tag_title?: string;
@@ -125,6 +135,10 @@ export const toTrack = (r: TrackRow): Track => ({
   bitrate: r.bitrate,
   hasArtwork: r.has_art === 1,
   addedAt: r.added_at,
+  codec: r.codec ?? null,
+  sampleRate: r.sample_rate ?? null,
+  bitDepth: r.bit_depth ?? null,
+  lossless: r.lossless === 1,
   edited: r.edited === 1,
 });
 const toAlbum = (r: AlbumRow): Album => ({
@@ -335,10 +349,10 @@ export class Library {
     const upsert = this.sql.query(
       `INSERT INTO tracks (id, path, title, artist, artist_id, album, album_id, album_artist, album_artist_id, duration_ms,
          track_no, disc_no, year, genre, mime, size, mtime_ms, bitrate, has_art, added_at,
-         tag_title, tag_artist, tag_album, tag_album_artist)
+         tag_title, tag_artist, tag_album, tag_album_artist, codec, sample_rate, bit_depth, lossless)
        VALUES ($id, $path, $title, $artist, $artist_id, $album, $album_id, $album_artist, $album_artist_id, $duration_ms,
          $track_no, $disc_no, $year, $genre, $mime, $size, $mtime_ms, $bitrate, $has_art, $added_at,
-         $title, $artist, $album, $album_artist)
+         $title, $artist, $album, $album_artist, $codec, $sample_rate, $bit_depth, $lossless)
        ON CONFLICT(id) DO UPDATE SET
          path = excluded.path, title = excluded.title, artist = excluded.artist, artist_id = excluded.artist_id,
          album = excluded.album, album_id = excluded.album_id, album_artist = excluded.album_artist,
@@ -346,7 +360,8 @@ export class Library {
          disc_no = excluded.disc_no, year = excluded.year, genre = excluded.genre, mime = excluded.mime,
          size = excluded.size, mtime_ms = excluded.mtime_ms, bitrate = excluded.bitrate, has_art = excluded.has_art,
          tag_title = excluded.tag_title, tag_artist = excluded.tag_artist, tag_album = excluded.tag_album,
-         tag_album_artist = excluded.tag_album_artist`,
+         tag_album_artist = excluded.tag_album_artist, codec = excluded.codec, sample_rate = excluded.sample_rate,
+         bit_depth = excluded.bit_depth, lossless = excluded.lossless`,
     );
     const added: string[] = [];
     this.sql.transaction(() => {
@@ -357,7 +372,8 @@ export class Library {
           album_id: row.album_id, album_artist: row.album_artist, album_artist_id: row.album_artist_id,
           duration_ms: row.duration_ms, track_no: row.track_no, disc_no: row.disc_no, year: row.year, genre: row.genre,
           mime: row.mime, size: row.size, mtime_ms: row.mtime_ms, bitrate: row.bitrate, has_art: row.has_art,
-          added_at: row.added_at,
+          added_at: row.added_at, codec: row.codec, sample_rate: row.sample_rate, bit_depth: row.bit_depth,
+          lossless: row.lossless,
         });
       }
     })();

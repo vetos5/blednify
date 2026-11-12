@@ -38,6 +38,7 @@ import { IconButton } from '@/ui/components/IconButton';
 import { LikeButton } from '@/ui/components/LikeButton';
 import { PlaylistPicker } from '@/ui/components/PlaylistPicker';
 import { ArtistCard } from '@/ui/components/player/ArtistCard';
+import { FileInfoCard } from '@/ui/components/player/FileInfoCard';
 import { LyricsCard } from '@/ui/components/player/LyricsCard';
 import { UpNextCard } from '@/ui/components/player/UpNextCard';
 import { PressableScale } from '@/ui/components/PressableScale';
@@ -299,6 +300,7 @@ function NowPlaying({
         {withLyrics && lyrics ? <LyricsCard track={track} lyrics={lyrics} /> : null}
         <UpNextCard />
         <ArtistCard track={track} />
+        <FileInfoCard track={track} />
       </View>
     </>
   );

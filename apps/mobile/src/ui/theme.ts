@@ -31,6 +31,8 @@ export type Palette = {
   onAccent: string;
   danger: string;
   success: string;
+  /** Caution highlight (e.g. low-quality audio): amber, readable on the background. */
+  warning: string;
   scrim: string;
   /** Pressed-row highlight, Android ripple, and unfilled progress track (ink at low alpha). */
   pressed: string;
@@ -178,6 +180,7 @@ function derivePalette(bgHex: string, accentHex: string, backdrop: Backdrop): Pa
     onAccent: luminance(accent) > 0.45 ? '#0A0A0C' : '#FFFFFF',
     danger: isLight ? '#D92D32' : '#FF5A5F',
     success: isLight ? '#1E9E62' : '#3DD68C',
+    warning: isLight ? '#A15C07' : '#F5B83D',
     scrim: isLight ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.6)',
     pressed: rgba(ink, 0.05),
     ripple: rgba(ink, 0.07),

@@ -25,6 +25,10 @@ type Track = {
   bitrate: number | null; // kbps
   hasArtwork: boolean;
   addedAt: string;       // ISO 8601
+  codec: string | null;  // as the file reports it: "MPEG 1 Layer 3", "AAC", "FLAC", "PCM", …
+  sampleRate: number | null;  // Hz
+  bitDepth: number | null;    // lossless files only
+  lossless: boolean;
   edited: boolean;       // the admin changed title/artist/album on the server (PATCH /api/tracks/:id)
 };
 

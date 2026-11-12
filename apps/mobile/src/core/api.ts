@@ -20,6 +20,11 @@ export type ApiTrack = {
   addedAt: string;
   /** The admin changed title/artist/album on the server (older servers omit it). */
   edited?: boolean;
+  /** Stream details (older servers omit them). */
+  codec?: string | null;
+  sampleRate?: number | null;
+  bitDepth?: number | null;
+  lossless?: boolean;
 };
 export type ApiAlbum = {
   id: string;

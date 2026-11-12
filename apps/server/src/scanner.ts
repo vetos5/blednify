@@ -134,6 +134,10 @@ async function readTrack(f: FoundFile, addedAt: string, strict = false): Promise
     bitrate: format.bitrate ? Math.round(format.bitrate / 1000) : null,
     has_art: (common.picture?.length ?? 0) > 0 ? 1 : 0,
     added_at: addedAt,
+    codec: format.codec?.trim() || null,
+    sample_rate: format.sampleRate ? Math.round(format.sampleRate) : null,
+    bit_depth: format.lossless && format.bitsPerSample ? format.bitsPerSample : null,
+    lossless: format.lossless ? 1 : 0,
   };
 }
 

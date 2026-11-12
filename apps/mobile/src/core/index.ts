@@ -156,4 +156,5 @@ export { sizedArtworkUrl } from './api';
 export { imageSourceFor, useImageSource, type ImageSource } from './auth';
 
 // Utilities
+export { audioQuality, formatSampleRate, type AudioQuality, type QualityLevel } from './quality';
 export { formatBytes, formatDuration } from './format';

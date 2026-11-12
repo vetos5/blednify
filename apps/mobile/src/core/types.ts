@@ -22,6 +22,12 @@ export type AppTrack = {
   addedAt: string;
   /** Server track whose info the admin edited (absent on older snapshots). */
   edited?: boolean;
+  /** Stream details from the server (absent on older snapshots and on-device files). kbps / Hz. */
+  bitrate?: number | null;
+  codec?: string | null;
+  sampleRate?: number | null;
+  bitDepth?: number | null;
+  lossless?: boolean;
 };
 
 export type AlbumView = {

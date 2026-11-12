@@ -58,6 +58,10 @@ describe("scan", () => {
       bitrate: 128,
       hasArtwork: true,
       addedAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+      codec: "PCM",
+      sampleRate: 8000,
+      bitDepth: 16,
+      lossless: true,
       edited: false,
     });
     const loose = await json<Track>(`/api/tracks/${idOf("loose/Zed - Untagged Song.wav")}`);
