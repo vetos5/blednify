@@ -8,7 +8,7 @@ import { useGlassSurface } from '../../chrome';
 
 const LEVEL_LABEL: Record<QualityLevel, string> = {
   lossless: 'Lossless',
-  high: 'High quality',
+  high: 'Good quality',
   low: 'Low quality',
   unknown: 'Unknown quality',
 };

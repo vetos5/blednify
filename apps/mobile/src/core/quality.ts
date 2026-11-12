@@ -39,8 +39,9 @@ function formatName(codec: string | null | undefined, mime: string): string {
 }
 
 /**
- * Format-aware verdict: MP3 is high quality from 320 kbps; AAC, Opus and Vorbis, which sound as good at a
- * lower rate, from 256 kbps; lossless is always fine. Small tolerances absorb VBR averages (e.g. 253 kbps).
+ * Format-aware verdict: AAC, Opus and Vorbis are fine from 128 kbps (what YouTube and SoundCloud serve);
+ * MP3 and other lossy formats from 192 kbps; lossless always. Small tolerances absorb VBR averages
+ * (e.g. 126 kbps Opus).
  */
 export function audioQuality(t: Pick<AppTrack, 'mimeType' | 'sizeBytes' | 'durationMs'> & Partial<AppTrack>): AudioQuality {
   const format = formatName(t.codec, t.mimeType);
@@ -52,7 +53,7 @@ export function audioQuality(t: Pick<AppTrack, 'mimeType' | 'sizeBytes' | 'durat
     estimated = true;
   }
   if (lossless) return { format, kbps, estimated, level: 'lossless', goodFrom: null };
-  const goodFrom = format === 'AAC' || format === 'Opus' || format === 'Vorbis' ? 256 : 320;
+  const goodFrom = format === 'AAC' || format === 'Opus' || format === 'Vorbis' ? 128 : 192;
   const level: QualityLevel = !kbps ? 'unknown' : kbps >= goodFrom * 0.97 ? 'high' : 'low';
   return { format, kbps, estimated, level, goodFrom };
 }
