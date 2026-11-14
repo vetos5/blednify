@@ -1,5 +1,5 @@
 import { FlashList } from '@shopify/flash-list';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -19,6 +19,7 @@ import { openTrackActions } from '@/ui/components/TrackActions';
 import { TrackRow, TrackTableHeader } from '@/ui/components/TrackRow';
 import { humanDuration, plural } from '@/ui/format';
 import { haptics } from '@/ui/haptics';
+import { goBack } from '@/ui/nav';
 import { showToast, type SheetAnchor } from '@/ui/overlay';
 import { useAfter } from '@/ui/useAfter';
 import { makeStyles, radius, space } from '@/ui/theme';
@@ -38,7 +39,7 @@ export default function PlaylistScreen() {
         {settled ? (
           <View style={[styles.root, styles.center]}>
             <EmptyState icon="list-outline" title="Playlist not found" message="It may have been deleted.">
-              <PrimaryButton label="Go back" variant="surface" onPress={() => router.back()} />
+              <PrimaryButton label="Go back" variant="surface" onPress={goBack} />
             </EmptyState>
           </View>
         ) : (
@@ -93,7 +94,7 @@ export default function PlaylistScreen() {
                   icon="ellipsis-horizontal"
                   label="Playlist options"
                   variant="filled"
-                  onPress={() => openPlaylistActions(playlist, { onDeleted: () => router.back(), tracks })}
+                  onPress={() => openPlaylistActions(playlist, { onDeleted: goBack, tracks })}
                 />
               </>
             }>

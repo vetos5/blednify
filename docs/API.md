@@ -64,9 +64,9 @@ type Lyrics = {
 | GET | `/api/tracks/gone?ids=a,b,…` | `{ gone: string[] }` — the given ids this server deleted (max 500; unknown ids are not "gone") |
 | GET | `/api/tracks/lookup?ids=a,b,…` | `{ items: Track[] }` — current info of the given ids (max 500; unknown ids left out), so the app can refresh its stored copies |
 | GET | `/api/tracks/:id` | `Track` |
-| GET | `/api/tracks/:id/stream` | audio bytes; MUST support `Range` (206), `Accept-Ranges`, `Content-Length`, correct `Content-Type`, `ETag`, `Cache-Control: public, max-age=31536000, immutable` |
+| GET | `/api/tracks/:id/stream` | audio bytes; MUST support `Range` (206), `Accept-Ranges`, `Content-Length`, correct `Content-Type`, `ETag`, `Cache-Control: public, max-age=31536000, immutable` (`private, …` when `LISTEN_TOKEN` is set) |
 | GET | `/api/tracks/:id/lyrics` | `Lyrics` (sidecar `.lrc`/`.txt` → embedded tag → LRCLIB unless `LYRICS_ONLINE=0`); `200` with nulls when none |
-| GET | `/api/tracks/:id/artwork?size=512` | `image/jpeg\|png` embedded cover (404 if none); long cache |
+| GET | `/api/tracks/:id/artwork?size=512` | `image/jpeg\|png` embedded cover (404 if none, or if the cover can't be decoded); long cache (`private` when `LISTEN_TOKEN` is set). Sizes snap to buckets 64/128/256/512/1024 and share one `ETag` per bucket |
 | GET | `/api/albums?q=&limit=&offset=` | `Page<Album>` |
 | GET | `/api/albums/:id` | `Album & { tracks: Track[] }` (sorted disc, track); an album id from before a merge/rename/edit returns the current album |
 | GET | `/api/artists?q=&limit=&offset=` | `Page<Artist>` |
@@ -89,6 +89,9 @@ type Lyrics = {
 | POST | `/api/imports/:id/cancel` | `ImportJob` (admin) |
 | POST | `/api/imports/:id/retry` | `ImportJob` (admin): re-runs failed songs |
 | DELETE | `/api/imports/:id` | `204` (admin): forgets the job; imported songs stay |
+| GET | `/api/library` | `{ version, updatedAt, data }` backup of the app's playlists and likes stored under `X-Library-Key` (20–128 chars of `A-Za-z0-9_-`); `404` when none. Reads need the listen token like every read; `Cache-Control: no-store` |
+| PUT | `/api/library` | JSON `{ baseVersion: integer >= 0, data: object }` → `{ version, updatedAt }`; `409 { version, updatedAt, data }` (the stored copy) when `baseVersion` is not the stored version; `413` above 8 MiB |
+| DELETE | `/api/library` | `204`: forgets the backup for `X-Library-Key` |
 
 `/api/admin/check` also returns `imports: boolean` (yt-dlp + ffmpeg found).
 

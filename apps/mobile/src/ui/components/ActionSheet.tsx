@@ -122,10 +122,14 @@ function BottomSheetHost() {
       <View style={StyleSheet.absoluteFill} pointerEvents={sheet ? 'auto' : 'none'}>
         <SheetPressBoundary key={Platform.OS === 'web' ? rendered.id : undefined}>
           <Animated.View style={[StyleSheet.absoluteFill, styles.scrim, scrimStyle]}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={closeSheet} accessibilityLabel="Close" />
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeSheet} accessibilityRole="button" accessibilityLabel="Close" />
           </Animated.View>
           <GestureDetector gesture={pan}>
-            <Animated.View style={[styles.sheet, { paddingBottom: insets.bottom + space.sm, maxHeight: screenH * 0.86 }, sheetStyle]}>
+            <Animated.View
+              accessibilityViewIsModal
+              role="dialog"
+              aria-modal
+              style={[styles.sheet, { paddingBottom: insets.bottom + space.sm, maxHeight: screenH * 0.86 }, sheetStyle]}>
               <View style={styles.grabber} />
               <SheetGesture value={{ pan, scrollY }}>
                 <View key={rendered.id}>{rendered.content}</View>

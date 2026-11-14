@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown, FadeInUp, FadeOutDown, FadeOutUp } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -36,7 +36,8 @@ export function ToastHost() {
             entering={(wide ? FadeInDown : FadeInUp).duration(220)}
             exiting={(wide ? FadeOutDown : FadeOutUp).duration(180)}
             style={styles.toast}
-            accessibilityLiveRegion="polite"
+            // Native screen readers get the message from showToast(); the live region covers the web app.
+            accessibilityLiveRegion={Platform.OS === 'web' ? 'polite' : 'none'}
             accessibilityRole="alert"
             onTouchEnd={() => toast.kind !== 'progress' && dismissToast(toast.id)}>
             {toast.kind === 'progress' ? (

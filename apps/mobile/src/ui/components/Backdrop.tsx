@@ -39,14 +39,22 @@ const STARS: Star[] = (() => {
 
 type Spot = { left: `${number}%`; top: `${number}%`; size: number; delay: number; duration: number };
 
+/**
+ * Every twinkle and meteor runs on one shared cycle: a burst of motion, then a still gap. Any change in the
+ * backdrop redraws the whole window (glass blur included), so constant twinkling kept the GPU busy and the
+ * battery draining even with the app idle. Within a cycle, motion happens in the first ~4 s only.
+ */
+const CYCLE_MS = 10_000;
+
 function spots(seed: number, count: number, minSize: number, sizeRange: number): Spot[] {
   const rand = rng(seed);
   return Array.from({ length: count }, () => ({
     left: `${4 + rand() * 92}%`,
     top: `${3 + rand() * 85}%`,
     size: minSize + Math.round(rand() * sizeRange),
-    delay: Math.round(rand() * 3000),
-    duration: 1600 + Math.round(rand() * 2200),
+    // Start offset inside the burst, and the rise time (the fall takes as long).
+    delay: Math.round(rand() * 1600),
+    duration: 700 + Math.round(rand() * 500),
   }));
 }
 
@@ -56,16 +64,34 @@ const TWINKLERS = spots(42, 9, 2, 2);
 const GLOWS = spots(11, 10, 3, 2);
 const SPARKLES = spots(23, 8, 9, 6);
 
-/** A twinkle loop: 0.2 → 1 → 0.2 …, started after `delay`. Static (fully on) when not animating. */
+/** Brightness between twinkles. */
+const TWINKLE_REST = 0.35;
+
+/**
+ * One twinkle per cycle (rest → 1 → rest, `delay` into the cycle), then still until the next cycle.
+ * Static (fully on) when not animating.
+ */
 function useTwinkle(animate: boolean, delay: number, duration: number) {
-  const o = useSharedValue(animate ? 0.2 : 1);
+  const o = useSharedValue(animate ? TWINKLE_REST : 1);
   useEffect(() => {
     if (!animate) {
       o.value = 1;
       return;
     }
-    o.value = 0.2;
-    o.value = withDelay(delay, withRepeat(withTiming(1, { duration, easing: Easing.inOut(Easing.quad) }), -1, true));
+    const ease = Easing.inOut(Easing.quad);
+    o.value = TWINKLE_REST;
+    o.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration, easing: ease }),
+          withTiming(TWINKLE_REST, { duration, easing: ease }),
+          // Hold still for the rest of the cycle (no frames are drawn while nothing changes).
+          withDelay(CYCLE_MS - 2 * duration, withTiming(TWINKLE_REST, { duration: 0 })),
+        ),
+        -1,
+      ),
+    );
     return () => cancelAnimation(o);
   }, [o, animate, delay, duration]);
   return o;
@@ -88,7 +114,7 @@ function Twinkle({ spot, color, animate }: { spot: Spot; color: string; animate:
 
 /** A star with a soft halo (two translucent rings around a bright core). */
 function GlowStar({ spot, color, animate }: { spot: Spot; color: string; animate: boolean }) {
-  const o = useTwinkle(animate, spot.delay, spot.duration + 800);
+  const o = useTwinkle(animate, spot.delay, spot.duration + 300);
   const style = useAnimatedStyle(() => ({ opacity: 0.45 + o.value * 0.55 }));
   const halo = spot.size * 5;
   return (
@@ -138,11 +164,14 @@ function Sparkle({ spot, color, animate }: { spot: Spot; color: string; animate:
 
 type Meteor = { startX: number; startY: number; delay: number; every: number; length: number };
 
-/** Shooting stars: start (fraction of the screen), first delay and repeat period in ms, trail length. */
+/**
+ * Shooting stars: start (fraction of the screen), first delay and repeat period in ms, trail length. Periods
+ * are whole cycles and delays land inside a cycle's burst, so meteors never break up the still gaps.
+ */
 const METEORS: readonly Meteor[] = [
-  { startX: 0.85, startY: 0.04, delay: 1200, every: 7000, length: 120 },
-  { startX: 0.55, startY: 0.18, delay: 4600, every: 9500, length: 90 },
-  { startX: 1.05, startY: 0.35, delay: 8200, every: 12000, length: 140 },
+  { startX: 0.85, startY: 0.04, delay: 1200, every: 2 * CYCLE_MS, length: 120 },
+  { startX: 0.55, startY: 0.18, delay: CYCLE_MS + 900, every: 3 * CYCLE_MS, length: 90 },
+  { startX: 1.05, startY: 0.35, delay: 2 * CYCLE_MS + 1500, every: 4 * CYCLE_MS, length: 140 },
 ];
 /** Travel direction: down and to the left. */
 const METEOR_ANGLE = 152;

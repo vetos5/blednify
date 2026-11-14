@@ -145,6 +145,37 @@ export function useRemoteTracks(params?: { q?: string; sort?: 'added' | 'title' 
   };
 }
 
+async function fetchAllTracks(base: string, signal: AbortSignal): Promise<ApiTrack[]> {
+  const out: ApiTrack[] = [];
+  for (;;) {
+    const page = await apiGet<ApiPage<ApiTrack>>(
+      base,
+      `/api/tracks${queryString({ sort: 'title', limit: 500, offset: out.length })}`,
+      signal,
+    );
+    out.push(...page.items);
+    if (!page.items.length || out.length >= page.total) return out;
+  }
+}
+
+/** Every server song, A–Z (Library → Songs). Loaded whole like the albums, so Play all / Shuffle cover all of them. */
+export function useAllRemoteTracks(): { tracks: AppTrack[]; isLoading: boolean; isError: boolean; refetch(): void } {
+  const base = useServerBase();
+  const q = useQuery({
+    queryKey: ['tracks', base, 'all'],
+    queryFn: ({ signal }) => fetchAllTracks(base, signal),
+    enabled: !!base,
+    staleTime: CATALOG_STALE_MS,
+  });
+  const ctx = useResolveCtx();
+  const tracks = useMemo(
+    () => (q.data ? q.data.map((t) => resolveTrack(fromApiTrack(t, base), ctx)) : EMPTY_TRACKS),
+    [q.data, base, ctx],
+  );
+  const { refetch } = q;
+  return { tracks, isLoading: q.isLoading, isError: q.isError && !q.data, refetch: () => void refetch() };
+}
+
 async function fetchAllAlbums(base: string, signal: AbortSignal): Promise<ApiAlbum[]> {
   const out: ApiAlbum[] = [];
   for (;;) {
@@ -161,7 +192,7 @@ async function fetchAllAlbums(base: string, signal: AbortSignal): Promise<ApiAlb
 const EMPTY_ALBUMS: AlbumView[] = [];
 const EMPTY_ARTISTS: ArtistView[] = [];
 
-export function useRemoteAlbums(): { albums: AlbumView[]; isLoading: boolean; refetch(): void } {
+export function useRemoteAlbums(): { albums: AlbumView[]; isLoading: boolean; isError: boolean; refetch(): void } {
   const base = useServerBase();
   const q = useQuery({
     queryKey: ['albums', base],
@@ -171,7 +202,7 @@ export function useRemoteAlbums(): { albums: AlbumView[]; isLoading: boolean; re
   });
   const albums = useMemo(() => (q.data ? q.data.map((a) => fromApiAlbum(a, base)) : EMPTY_ALBUMS), [q.data, base]);
   const { refetch } = q;
-  return { albums, isLoading: q.isLoading, refetch: () => void refetch() };
+  return { albums, isLoading: q.isLoading, isError: q.isError && !q.data, refetch: () => void refetch() };
 }
 
 export function useAlbum(id: string, origin: Origin): { album: AlbumView | null; tracks: AppTrack[]; isLoading: boolean } {

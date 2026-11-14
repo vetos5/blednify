@@ -42,7 +42,9 @@ export async function serveFile(req: Request, o: ServeFileOptions): Promise<Resp
   }
   if (!st.isFile()) return null;
   const size = st.size;
-  const etag = `"${o.etagKey}-${size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+  // ETags may only hold visible ASCII other than `"`; anything else would make the Headers constructor throw.
+  const key = o.etagKey.replace(/[^\x21\x23-\x7e]/g, "_");
+  const etag = `"${key}-${size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
   const headers = new Headers({
     "Accept-Ranges": "bytes",
     "Cache-Control": o.cacheControl,

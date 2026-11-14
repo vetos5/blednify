@@ -20,7 +20,7 @@ import { player } from './engine';
 export type { AudioMetadata, AudioPlaylist, AudioPlaylistStatus } from 'expo-audio';
 
 type Source = { uri: string; name?: string; headers?: Record<string, string> };
-type Status = AudioPlaylistStatus & { error?: string };
+type Status = AudioPlaylistStatus & { error?: string; network?: boolean };
 type Listener = (s: Status) => void;
 type LoopMode = 'none' | 'single' | 'all';
 
@@ -337,7 +337,8 @@ class WebPlaylist {
             : 'Track could not be played';
     this.isLoaded = false;
     this.buffering = false;
-    this.emit({ error: err?.message ? `${reason} (${err.message})` : reason });
+    const network = err?.code === MediaError.MEDIA_ERR_NETWORK || (typeof navigator !== 'undefined' && navigator.onLine === false);
+    this.emit({ error: err?.message ? `${reason} (${err.message})` : reason, network });
   }
 
   private status(): Status {

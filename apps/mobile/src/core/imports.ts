@@ -140,13 +140,29 @@ async function doSync(id: string): Promise<void> {
 
 let polling = false;
 
+/** Songs land every few seconds during an import; reload the catalog at most every 10 s, not per song. */
+const CATALOG_REFRESH_MS = 10_000;
+let catalogTimer: ReturnType<typeof setTimeout> | null = null;
+let lastCatalogRefresh = 0;
+
+function refreshCatalogSoon() {
+  if (catalogTimer) return;
+  const wait = Math.max(0, lastCatalogRefresh + CATALOG_REFRESH_MS - Date.now());
+  catalogTimer = setTimeout(() => {
+    catalogTimer = null;
+    lastCatalogRefresh = Date.now();
+    refreshCatalog();
+  }, wait);
+}
+
 async function refresh(id: string): Promise<ImportJob | null> {
   const base = getServerBase();
   try {
     const job = await apiGet<ImportJob>(base, `/api/imports/${id}`);
     const before = store.getState().entries[id]?.job;
     put(job);
-    if (job.done !== before?.done) refreshCatalog();
+    // `before` is missing on the first load after a launch; the catalog is fetched fresh then anyway.
+    if (before && job.done !== before.done) refreshCatalogSoon();
     await sync(id);
     return job;
   } catch (e) {

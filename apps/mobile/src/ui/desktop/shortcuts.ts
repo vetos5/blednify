@@ -48,6 +48,12 @@ function isTyping(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 }
 
+/** A focused slider (volume, seek bar) uses the arrow keys itself. */
+function isSlider(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !!el?.getAttribute && (el.getAttribute('role') === 'slider' || el.hasAttribute('aria-valuenow'));
+}
+
 function seekBy(deltaMs: number) {
   const { positionMs, durationMs } = progressStore.getState();
   if (!playerStore.getState().current || durationMs <= 0) return;
@@ -77,6 +83,7 @@ function handle(e: KeyboardEvent): boolean {
   if (useOverlay.getState().sheet) return false;
 
   const hasTrack = !!playerStore.getState().current;
+  if (e.key.startsWith('Arrow') && isSlider(e.target)) return false;
   switch (e.key) {
     case ' ':
       // Space on a focused button would also press it; the shortcut wins.
@@ -146,8 +153,9 @@ export function useShortcuts(enabled: boolean) {
       if (!handle(e)) return;
       e.preventDefault();
       // Keyboard use makes Chrome draw a focus ring on whatever was last clicked; a shortcut isn't aimed at it.
+      // Focus a keyboard user moved there on purpose (:focus-visible) stays, so Tab navigation isn't lost.
       const active = document.activeElement as HTMLElement | null;
-      if (active && active !== document.body && !isTyping(active)) active.blur();
+      if (active && active !== document.body && !isTyping(active) && !active.matches(':focus-visible')) active.blur();
     };
     // Capture: runs before a focused button turns Space into a click.
     window.addEventListener('keydown', onKey, { capture: true });

@@ -16,6 +16,7 @@ export function Chip({ label, selected, onPress, icon }: { label: string; select
     <PressableScale
       accessibilityRole="button"
       accessibilityState={{ selected: !!selected }}
+      hitSlop={5}
       onPress={() => {
         haptics.select();
         onPress();

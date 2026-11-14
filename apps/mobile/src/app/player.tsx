@@ -1,5 +1,4 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState, type ComponentRef, type RefObject } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
@@ -49,16 +48,14 @@ import { openTrackActions } from '@/ui/components/TrackActions';
 import { DesktopNowPlaying } from '@/ui/desktop/NowPlaying';
 import { haptics } from '@/ui/haptics';
 import { useIsWide } from '@/ui/layout';
-import { nav } from '@/ui/nav';
+import { goBack, nav } from '@/ui/nav';
 import { showSheet } from '@/ui/overlay';
 import { ForceDark, makeStyles, radius, space, useColors, webLayer } from '@/ui/theme';
 
 const DISMISS_DISTANCE = 140;
 const IS_WEB = Platform.OS === 'web';
 
-function dismiss() {
-  if (router.canGoBack()) router.back();
-}
+const dismiss = goBack;
 
 /** Finishes a pull-down: closes past the distance or on a flick, otherwise springs back. */
 function settleSheet(y: SharedValue<number>, translationY: number, velocityY: number, screenH: number) {
@@ -264,11 +261,11 @@ function NowPlaying({
   );
 
   const goArtist = () => {
-    router.back();
+    goBack();
     nav.artist(track.artistId, track.origin);
   };
   const goAlbum = () => {
-    router.back();
+    goBack();
     nav.album(track.albumId, track.origin);
   };
 
@@ -300,7 +297,7 @@ function NowPlaying({
           <IconButton
             icon="ellipsis-horizontal"
             label="More options"
-            onPress={() => openTrackActions(track, { beforeNavigate: () => router.back() })}
+            onPress={() => openTrackActions(track, { beforeNavigate: goBack })}
           />
         </View>
 
@@ -310,7 +307,7 @@ function NowPlaying({
 
         <View style={styles.titleRow}>
           <View style={styles.titleText}>
-            <Text variant="title" numberOfLines={1}>
+            <Text variant="title" numberOfLines={2}>
               {track.title}
             </Text>
             <Pressable

@@ -97,13 +97,16 @@ const posInt = (n: number | null | undefined) => (n != null && Number.isInteger(
 async function readTrack(f: FoundFile, addedAt: string, strict = false): Promise<TrackRow> {
   const { common, format, quality } = await parseFile(f.abs, { duration: true });
   if (!format.container || !format.duration || format.duration <= 0) throw new Error("not an audio file");
+  // Cheap sanity checks for every file: random bytes can parse as a few frames of a sub-second "track" with an
+  // impossible bitrate.
+  const lossyOverMax = /^(MPEG|ADTS)/.test(format.container) && (format.bitrate ?? 0) > 640_000;
+  if (format.duration < 0.1 || lossyOverMax) throw new Error("not an audio file");
   if (strict) {
     // Random bytes can masquerade as a few MPEG/ADTS frames: require the decoded stream to account for
     // a sane share of the file (excluding embedded pictures), and no flood of parser warnings.
     const pictureBytes = common.picture?.reduce((n, p) => n + p.data.byteLength, 0) ?? 0;
     const audioBytes = format.bitrate ? (format.duration * format.bitrate) / 8 : Number.POSITIVE_INFINITY;
-    const lossyOverMax = /^(MPEG|ADTS)/.test(format.container) && (format.bitrate ?? 0) > 640_000;
-    if (audioBytes < 0.25 * Math.max(1, f.size - pictureBytes) || lossyOverMax || quality.warnings.length >= 25)
+    if (audioBytes < 0.25 * Math.max(1, f.size - pictureBytes) || quality.warnings.length >= 25)
       throw new Error("corrupt audio file");
   }
   const fromName = parseFileName(f.rel);
@@ -254,7 +257,9 @@ export class Scanner {
     let failed = 0;
     let batch: TrackRow[] = [];
     const flush = () => {
-      if (batch.length) added += this.lib.upsertTracks(batch).length;
+      // A file deleted (DELETE /api/tracks/:id) after it was parsed must not come back as a ghost row.
+      const live = batch.filter((r) => existsSync(join(this.musicDir, r.path)));
+      if (live.length) added += this.lib.upsertTracks(live).length;
       batch = [];
     };
     await pool(changed, PARSE_CONCURRENCY, async (f) => {

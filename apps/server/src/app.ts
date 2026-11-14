@@ -1,6 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
@@ -297,7 +297,8 @@ export function createApp(ctx: AppContext): Hono {
       path: file.path,
       contentType: file.mime,
       cacheControl: artCache,
-      etagKey: `${row.id}-${size ?? 0}`,
+      // Keyed on the cached file, so sizes that share a bucket share a tag (and the client's cache entry).
+      etagKey: basename(file.path),
     });
     return res ?? fail(404, "no artwork");
   });

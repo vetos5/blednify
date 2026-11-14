@@ -19,6 +19,7 @@ export { serverUrlProblem } from './api';
 export {
   testServer,
   useAlbum,
+  useAllRemoteTracks,
   useArtist,
   useRemoteAlbums,
   useRemoteTracks,

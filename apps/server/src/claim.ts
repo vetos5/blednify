@@ -22,7 +22,16 @@ function truncateUtf8(s: string, max: number): string {
 
 /** Safe single path segment: no separators/control chars, no leading dots, bounded byte length, lowercase ext. */
 export function sanitizeFileName(name: string): string {
-  const base = name.split(/[\\/]/).pop() ?? "";
+  // Some clients send the name percent-encoded (Bun ignores `filename*`); store the readable name.
+  let raw = name;
+  if (/%[0-9a-f]{2}/i.test(raw)) {
+    try {
+      raw = decodeURIComponent(raw);
+    } catch {
+      // Not valid percent-encoding: keep it as sent.
+    }
+  }
+  const base = raw.split(/[\\/]/).pop() ?? "";
   const ext = extname(base).toLowerCase();
   const cleaned = base
     .slice(0, base.length - ext.length)

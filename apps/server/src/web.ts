@@ -49,21 +49,27 @@ export async function serveWeb(req: Request, dir: string): Promise<Response | nu
   const target = normalize(join(root, rel));
   if (!target.startsWith(root)) return null;
 
+  const inHashedDir = rel.startsWith("/_expo/") || rel.startsWith("/assets/");
   let path = target;
+  let shell = false;
   if (rel.endsWith("/") || !(await isFile(path))) {
-    // Missing asset → 404 (falls through); anything route-like → the app shell.
-    if (extname(rel) && !rel.endsWith(".html")) return null;
+    // Missing asset → 404 (falls through); anything route-like → the app shell. Nothing in the hashed folders
+    // is a route, and the shell must never be served under their year-long immutable cache header.
+    if (inHashedDir || (extname(rel) && !rel.endsWith(".html"))) return null;
     path = join(root, "index.html");
     if (!(await isFile(path))) return null;
+    shell = true;
   }
 
   const ext = extname(path);
-  const hashed = rel.startsWith("/_expo/") || rel.startsWith("/assets/");
+  const served = shell ? "/index.html" : rel;
   const res = await serveFile(req, {
     path,
     contentType: TYPES[ext] ?? (Bun.file(path).type || "application/octet-stream"),
-    cacheControl: hashed ? IMMUTABLE : REVALIDATE,
-    etagKey: `web${rel}`,
+    cacheControl: inHashedDir && !shell ? IMMUTABLE : REVALIDATE,
+    // Keyed on the file actually served (one tag for every route that gets the shell). Hashed so a path with
+    // Cyrillic, quotes or control characters can't produce an invalid header.
+    etagKey: `web-${Bun.hash(served).toString(36)}`,
   });
   if (!res) return null;
   for (const [k, v] of Object.entries(ISOLATION)) res.headers.set(k, v);

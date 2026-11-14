@@ -20,6 +20,7 @@ import {
   type AudioPlaylist,
   type AudioPlaylistStatus,
 } from './audio';
+import { addNetworkStateListener } from 'expo-network';
 import { AppState, Platform } from 'react-native';
 
 import { authHeadersFor } from '../auth';
@@ -32,8 +33,11 @@ import { lockArtwork, prefetchLockArtwork } from './lock-art';
 import { playerStore, progressStore } from './store';
 
 type Entry = { uid: number; track: AppTrack };
-/** Android adds `error: { message, code }` to playlist status events; it is not in the public type. */
-type NativeStatus = AudioPlaylistStatus & { error?: unknown };
+/**
+ * Android adds `error: { message, code }` to playlist status events; it is not in the public type. The web
+ * player sends `error` as a string and flags connection failures with `network`.
+ */
+type NativeStatus = AudioPlaylistStatus & { error?: unknown; network?: boolean };
 
 const UPDATE_INTERVAL_MS = 250;
 const RESTART_THRESHOLD_MS = 3_000;
@@ -41,6 +45,11 @@ const RECENT_AFTER_MS = 3_000;
 const LOAD_TIMEOUT_MS = 20_000;
 const MAX_ERROR_STREAK = 3;
 const POSITION_SAVE_MS = 5_000;
+/** Retry delays after a connection error; the last one repeats until NETWORK_GIVE_UP_MS has passed. */
+const NETWORK_RETRY_MS = [2_000, 4_000, 8_000, 15_000, 30_000];
+const NETWORK_GIVE_UP_MS = 10 * 60_000;
+/** Media3 PlaybackException codes for a connection that failed or timed out (not 4xx/5xx or bad files). */
+const NETWORK_ERROR_CODES = new Set([2000, 2001, 2002]);
 /** How long status events reporting the pre-seek position are ignored while a seek settles. */
 const SEEK_SETTLE_MS = 6_000;
 const SEEK_TOLERANCE_MS = 1_500;
@@ -206,7 +215,8 @@ function armWatchdog() {
   if (!wantPlay || curLoaded) return;
   watchdog = setTimeout(() => {
     watchdog = null;
-    if (wantPlay && !curLoaded) onPlaybackError('Track took too long to load');
+    // Usually a connection that stalls without failing outright; treat it like one rather than skipping.
+    if (wantPlay && !curLoaded) onPlaybackError('Track took too long to load', true);
   }, LOAD_TIMEOUT_MS);
 }
 
@@ -304,8 +314,10 @@ function syncWindow() {
     const src = sourceOf(e.track);
     return src ? [{ uid: e.uid, src }] : [];
   });
-  const haveUids = natUids.slice(natCur + 1);
-  const haveKeys = natUris.slice(natCur + 1);
+  // After a JS-initiated skip native is already on `advancingTo.ci`, even though its event hasn't arrived yet.
+  const curSlot = advancingTo?.ci ?? natCur;
+  const haveUids = natUids.slice(curSlot + 1);
+  const haveKeys = natUris.slice(curSlot + 1);
   if (want.length === haveUids.length && want.every((w, k) => w.uid === haveUids[k] && srcKey(w.src) === haveKeys[k])) {
     windowDirty = false;
     return;
@@ -316,7 +328,7 @@ function syncWindow() {
   }
   windowDirty = false;
   editNative((n) => {
-    for (let i = natUids.length - 1; i > natCur; i--) {
+    for (let i = natUids.length - 1; i > curSlot; i--) {
       n.remove(i);
       natUids.pop();
       natUris.pop();
@@ -403,6 +415,7 @@ function load(idx: number, play: boolean, positionMs = 0) {
 
 function stopAll() {
   clearWatchdog();
+  cancelNetworkRetry();
   advancingTo = null;
   wantPlay = false;
   pendingSeekMs = null;
@@ -435,11 +448,15 @@ function onNativeIndex(ci: number) {
     load(Math.min(Math.max(index, 0), entries.length - 1), wantPlay);
     return;
   }
+  // `next()` already moved JS to this entry and reset its counters; a seek made since then targets this song.
+  const expected = idx === index;
   index = idx;
-  resetTrackCounters();
   const t = entries[idx].track;
-  setProgress(0, t.durationMs);
-  kv.set(POSITION_KEY, 0);
+  if (!expected) {
+    resetTrackCounters();
+    setProgress(0, t.durationMs);
+    kv.set(POSITION_KEY, 0);
+  }
   publishIndex();
   if (lockActive) nat?.updateLockScreenMetadata(metadataOf(t));
   // Only touch the native playlist when it is out of date or about to run dry; never routinely.
@@ -466,7 +483,7 @@ function onStatus(s: NativeStatus) {
 
   if (s.error) {
     const e = s.error;
-    onPlaybackError(typeof e === 'string' ? e : errorMessage(e));
+    onPlaybackError(typeof e === 'string' ? e : errorMessage(e), s.network === true || isNetworkError(e));
     return;
   }
   if (s.didJustFinish) {
@@ -507,7 +524,13 @@ function onStatus(s: NativeStatus) {
       recorded = true;
       void recordRecent(cur).catch((e) => console.warn('[player] recordRecent failed', e));
     }
-    if (s.isLoaded) errorStreak = 0;
+    if (s.isLoaded) {
+      errorStreak = 0;
+      if (netRetry) {
+        cancelNetworkRetry();
+        playerStore.setState({ error: null });
+      }
+    }
     const now = Date.now();
     if (now - lastPositionSave > POSITION_SAVE_MS) {
       lastPositionSave = now;
@@ -526,7 +549,8 @@ function onStatus(s: NativeStatus) {
 function onNativeFinished() {
   // Native window ended. Either the queue really ended, or the next entry had no playable source.
   const ni = nextIndex();
-  if (ni !== null && ni !== index) {
+  // `ni === index` is repeat-all over a one-song queue: play it again.
+  if (ni !== null) {
     load(ni, true);
     return;
   }
@@ -535,13 +559,71 @@ function onNativeFinished() {
   load(0, false);
 }
 
-function onPlaybackError(message: string) {
+function isNetworkError(e: unknown): boolean {
+  const code = e && typeof e === 'object' && 'code' in e ? Number(e.code) : NaN;
+  return NETWORK_ERROR_CODES.has(code);
+}
+
+// --- Connection loss -------------------------------------------------------------------------
+// A dropped connection is not the song's fault: skipping would fail on every following song too and lose the
+// place in this one. Stay on it and reload from the same position until the network is back.
+
+let netRetry: { uid: number; attempt: number; since: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
+let netRetrySub: { remove(): void } | null = null;
+
+function cancelNetworkRetry() {
+  if (netRetry?.timer) clearTimeout(netRetry.timer);
+  netRetry = null;
+  netRetrySub?.remove();
+  netRetrySub = null;
+}
+
+function retryAfterNetworkError() {
+  const r = netRetry;
+  const cur = entries[index];
+  if (!r || !cur || cur.uid !== r.uid || !wantPlay) return cancelNetworkRetry();
+  if (r.timer) clearTimeout(r.timer);
+  r.timer = null;
+  r.attempt++;
+  load(index, true, progressStore.getState().positionMs);
+}
+
+function waitForNetwork(message: string) {
+  const cur = entries[index];
+  if (!cur) return;
+  if (!netRetry || netRetry.uid !== cur.uid) {
+    cancelNetworkRetry();
+    netRetry = { uid: cur.uid, attempt: 0, since: Date.now(), timer: null };
+    // Only the first failure is announced; retries stay quiet until one works or we give up.
+    playerStore.setState({ error: `${message}. Retrying…`, errorId: S().errorId + 1 });
+  }
+  const r = netRetry;
+  if (Date.now() - r.since > NETWORK_GIVE_UP_MS) {
+    cancelNetworkRetry();
+    wantPlay = false;
+    playerStore.setState({ isPlaying: false, isBuffering: false, error: message, errorId: S().errorId + 1 });
+    return;
+  }
+  playerStore.setState({ isPlaying: false, isBuffering: true });
+  const delay = NETWORK_RETRY_MS[Math.min(r.attempt, NETWORK_RETRY_MS.length - 1)];
+  r.timer = setTimeout(retryAfterNetworkError, delay);
+  netRetrySub ??= addNetworkStateListener((net) => {
+    if (net.isConnected !== false && netRetry?.timer) retryAfterNetworkError();
+  });
+}
+
+function onPlaybackError(message: string, network = false) {
   // Auto-skip only while the user wants playback; a paused/stopped player just reports the error.
   const resume = wantPlay;
   clearWatchdog();
   natBroken = true;
   natReady = false;
   pendingSeekMs = null;
+  if (network && resume) {
+    waitForNetwork(message);
+    return;
+  }
+  cancelNetworkRetry();
   errorStreak++;
   playerStore.setState({ error: message, errorId: S().errorId + 1, isBuffering: false });
   const ni = nextIndex();
@@ -691,6 +773,7 @@ function play() {
 }
 
 function pause() {
+  cancelNetworkRetry();
   wantPlay = false;
   lastCommandAt = Date.now();
   clearWatchdog();

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { File } from 'expo-file-system';
+import { Platform } from 'react-native';
 import { createMMKV } from 'react-native-mmkv';
 import { useStore } from 'zustand';
 
@@ -42,7 +43,21 @@ function readCache(key: string): Cached | null {
   }
 }
 
+/** Entries kept. On web the cache lives in localStorage (about 5 MB per site, shared with the player). */
+const CACHE_CAP = Platform.OS === 'web' ? 300 : 3000;
+let writesSincePrune = Number.POSITIVE_INFINITY;
+
+/** Drops the oldest entries once the cache passes its cap (checked on the first write, then every 50). */
+function pruneCache() {
+  writesSincePrune = 0;
+  const keys = cache.getAllKeys();
+  if (keys.length <= CACHE_CAP) return;
+  const aged = keys.map((k) => ({ k, at: readCache(k)?.at ?? 0 })).sort((a, b) => a.at - b.at);
+  for (const { k } of aged.slice(0, keys.length - Math.floor(CACHE_CAP * 0.8))) cache.remove(k);
+}
+
 function writeCache(key: string, lyrics: Lyrics) {
+  if (++writesSincePrune > 50) pruneCache();
   cache.set(key, JSON.stringify({ at: Date.now(), lyrics } satisfies Cached));
 }
 
@@ -191,11 +206,17 @@ function lyricsQuery(track: AppTrack | null, base: string, online: boolean) {
 }
 
 /** Lyrics for a track (server lookup for server tracks; embedded tag, then LRCLIB, for imported ones). */
-export function useLyrics(track: AppTrack | null): { lyrics: Lyrics | null; isLoading: boolean; isError: boolean } {
+export function useLyrics(track: AppTrack | null): {
+  lyrics: Lyrics | null;
+  isLoading: boolean;
+  isError: boolean;
+  refetch(): void;
+} {
   const base = useServerBase();
   const online = useStore(settingsStore, (s) => s.lyricsOnline);
   const q = useQuery({ ...lyricsQuery(track, base, online), enabled: !!track });
-  return { lyrics: q.data ?? null, isLoading: q.isLoading, isError: q.isError };
+  const { refetch } = q;
+  return { lyrics: q.data ?? null, isLoading: q.isLoading, isError: q.isError, refetch: () => void refetch() };
 }
 
 /** Warm the cache for the song that plays next, so skipping shows its lyrics at once instead of a spinner. */

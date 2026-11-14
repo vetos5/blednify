@@ -462,7 +462,7 @@ function sourceOf(kind: "soundcloud" | "youtube", info: YtInfo): string {
 }
 
 export async function resolveYtdlp(link: Extract<ParsedLink, { kind: "soundcloud" | "youtube" }>, ytdlp: string): Promise<Resolved> {
-  const info = await ytdlpJson(ytdlp, ["--flat-playlist", link.url]);
+  const info = await ytdlpJson(ytdlp, ["--flat-playlist", "--", link.url]);
   const entries = info._type === "playlist" ? (info.entries ?? []).filter((e): e is YtInfo => !!e?.id) : [info];
   if (!entries.length) throw new LinkError("this playlist is empty or private");
   const isPlaylist = info._type === "playlist";

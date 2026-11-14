@@ -15,6 +15,8 @@ const ORIGINAL_EXTS = ["jpg", "png"] as const;
  */
 export class ArtworkCache {
   private readonly inflight = new Map<string, Promise<ArtFile | null>>();
+  /** Tracks whose embedded cover couldn't be converted; not retried on every request (cleared on invalidate). */
+  private readonly unreadable = new Set<string>();
 
   constructor(readonly dir: string) {
     mkdirSync(dir, { recursive: true });
@@ -47,11 +49,13 @@ export class ArtworkCache {
 
   /** Drop every cached file for a track (it changed or was removed). */
   async invalidate(trackId: string): Promise<void> {
+    this.unreadable.delete(trackId);
     const names = [...ORIGINAL_EXTS.map((e) => `${trackId}.${e}`), ...SIZE_BUCKETS.map((b) => `${trackId}-${b}.jpg`)];
     await Promise.all(names.map((n) => rm(join(this.dir, n), { force: true })));
   }
 
   private original(trackId: string, audioPath: string): Promise<ArtFile | null> {
+    if (this.unreadable.has(trackId)) return Promise.resolve(null);
     return this.once(trackId, async () => {
       for (const ext of ORIGINAL_EXTS) {
         const path = join(this.dir, `${trackId}.${ext}`);
@@ -65,8 +69,16 @@ export class ArtworkCache {
       const isJpeg = fmt.includes("jpeg") || fmt.includes("jpg");
       const path = join(this.dir, `${trackId}.${isPng ? "png" : "jpg"}`);
       const tmp = `${path}.${process.pid}.tmp`;
-      if (isPng || isJpeg) await Bun.write(tmp, cover.data);
-      else await new Bun.Image(cover.data).jpeg({ quality: 90 }).write(tmp); // webp/gif/bmp → jpeg
+      try {
+        if (isPng || isJpeg) await Bun.write(tmp, cover.data);
+        else await new Bun.Image(cover.data).jpeg({ quality: 90 }).write(tmp); // webp/gif/bmp → jpeg
+      } catch (err) {
+        // An image format Bun.Image can't decode: treat the track as having no cover instead of a 500 per request.
+        console.warn(`[art] unreadable cover for ${trackId} (${cover.format}): ${(err as Error).message}`);
+        this.unreadable.add(trackId);
+        await rm(tmp, { force: true });
+        return null;
+      }
       await rename(tmp, path);
       return { path, mime: isPng ? "image/png" : "image/jpeg" };
     });

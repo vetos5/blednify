@@ -6,12 +6,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   player,
+  useAllRemoteTracks,
   useLikedTracks,
   useLocalAlbums,
   useLocalTracks,
   usePlaylists,
   useRecentlyPlayed,
   useRemoteAlbums,
+  useServerBase,
   useSettings,
   type AlbumView,
   type AppTrack,
@@ -25,6 +27,7 @@ import { EmptyState } from '@/ui/components/EmptyState';
 import { Icon } from '@/ui/components/Icon';
 import { IconButton } from '@/ui/components/IconButton';
 import { ListRow } from '@/ui/components/ListRow';
+import { Loading } from '@/ui/components/Loading';
 import { PlaylistArtwork } from '@/ui/components/PlaylistArtwork';
 import { openPlaylistActions, promptNewPlaylist } from '@/ui/components/PlaylistActions';
 import { PrimaryButton } from '@/ui/components/PrimaryButton';
@@ -41,6 +44,7 @@ const FILTERS: { key: LibraryFilter; label: string }[] = [
   { key: 'playlists', label: 'Playlists' },
   { key: 'recents', label: 'Recents' },
   { key: 'albums', label: 'Albums' },
+  { key: 'songs', label: 'Songs' },
   { key: 'liked', label: 'Liked' },
   ...(fileStorageSupported
     ? ([
@@ -85,6 +89,7 @@ export default function LibraryScreen() {
       {filter === 'playlists' ? <PlaylistsList /> : null}
       {filter === 'recents' ? <RecentsList /> : null}
       {filter === 'albums' ? <AlbumsGrid /> : null}
+      {filter === 'songs' ? <SongsList /> : null}
       {filter === 'liked' ? <LikedList /> : null}
       {filter === 'downloaded' ? <DownloadedList /> : null}
       {filter === 'device' ? <DeviceList /> : null}
@@ -155,7 +160,7 @@ function AlbumsGrid() {
   const [pageW, setPageW] = useState(0);
   const columns = wide && pageW > 0 ? Math.max(3, Math.floor((pageW - 48) / 190)) : 2;
   const local = useLocalAlbums();
-  const { albums: remote } = useRemoteAlbums();
+  const { albums: remote, isLoading, isError, refetch } = useRemoteAlbums();
   const seen = new Set<string>();
   const albums: AlbumView[] = [];
   for (const a of [...local, ...remote]) {
@@ -175,12 +180,20 @@ function AlbumsGrid() {
       keyExtractor={(a) => `${a.origin}:${a.id}`}
       contentContainerStyle={{ paddingHorizontal: wide ? space.xl : space.md, paddingBottom: space.xl + chromeInset }}
       ListEmptyComponent={
+        isLoading ? (
+          <Loading />
+        ) : isError ? (
+          <EmptyState icon="cloud-offline-outline" title="Can’t reach your server" message="Albums from the server show up here once it’s back.">
+            <PrimaryButton label="Try again" icon="refresh" variant="surface" onPress={refetch} />
+          </EmptyState>
+        ) : (
         <EmptyState
           icon="disc-outline"
           title="No albums yet"
           message={fileStorageSupported ? 'Import music or connect your server to see albums here.' : 'Connect your server to see albums here.'}>
           {fileStorageSupported ? <PrimaryButton label="Import music" icon="add" variant="surface" onPress={importMusic} /> : null}
         </EmptyState>
+        )
       }
       renderItem={({ item }) => (
         <View style={styles.gridCell}>
@@ -204,6 +217,30 @@ function RecentsList() {
     <TrackList
       tracks={tracks}
       empty={<EmptyState icon="time-outline" title="No recently played songs" message="Tracks you play will appear here." />}
+    />
+  );
+}
+
+function SongsList() {
+  const hasServer = !!useServerBase();
+  const { tracks, isLoading, isError, refetch } = useAllRemoteTracks();
+  if (isLoading) return <Loading />;
+  return (
+    <TrackList
+      tracks={tracks}
+      empty={
+        !hasServer ? (
+          <EmptyState icon="cloud-offline-outline" title="No server connected" message="Connect your server in Settings to browse its songs.">
+            <PrimaryButton label="Open Settings" icon="settings-outline" variant="surface" onPress={nav.settings} />
+          </EmptyState>
+        ) : isError ? (
+          <EmptyState icon="cloud-offline-outline" title="Can’t reach your server" message="Its songs show up here once it’s back.">
+            <PrimaryButton label="Try again" icon="refresh" variant="surface" onPress={refetch} />
+          </EmptyState>
+        ) : (
+          <EmptyState icon="musical-notes-outline" title="No songs on the server" message="Add music to the server’s folder, or upload it in Admin mode." />
+        )
+      }
     />
   );
 }

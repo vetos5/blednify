@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { AccessibilityInfo, Platform } from 'react-native';
 import { create } from 'zustand';
 
 export type ToastKind = 'info' | 'success' | 'error' | 'progress';
@@ -37,6 +38,8 @@ export function showToast(message: string, kind: ToastKind = 'info'): number {
   clearTimeout(toastTimer);
   const id = ++seq;
   useOverlay.setState({ toast: { id, message, kind } });
+  // A live region on a freshly mounted view isn't announced reliably on Android; say it explicitly.
+  if (Platform.OS !== 'web') AccessibilityInfo.announceForAccessibility(message);
   if (kind !== 'progress') {
     toastTimer = setTimeout(() => dismissToast(id), kind === 'error' ? 4000 : 2400);
   }

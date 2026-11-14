@@ -1,20 +1,14 @@
-import { router } from 'expo-router';
 import type { ReactNode } from 'react';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useIsWide } from '../layout';
+import { goBack } from '../nav';
 import { makeStyles, space } from '../theme';
 import { IconButton } from './IconButton';
 import { Text } from './Text';
 
 /** Simple top bar for secondary screens: back, title, optional trailing actions. */
-/** Back, or Home for a page opened straight from a link (nothing to go back to). */
-function goBack() {
-  if (router.canGoBack()) router.back();
-  else router.replace('/');
-}
-
 export function ScreenHeader({
   title,
   right,

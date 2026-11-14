@@ -227,6 +227,8 @@ export class Importer {
   }
 
   private save(job: Stored): void {
+    // A removed job may still be unwinding (its cancel lands asynchronously); writing it now would bring it back.
+    if (this.jobs.get(job.id) !== job) return;
     job.updatedAt = new Date().toISOString();
     this.d.db.sql
       .query("INSERT INTO imports (id, doc, created_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET doc = ?2")
@@ -409,7 +411,7 @@ export class Importer {
     if (link) {
       let direct: YtInfo;
       try {
-        direct = await ytdlpJson(ytdlp, ["--no-playlist", link], signal);
+        direct = await ytdlpJson(ytdlp, ["--no-playlist", "--", link], signal);
       } catch (err) {
         // Removed / geo-blocked upload: the same song may still be on YouTube Music.
         if (signal.aborted || !item.title) throw err;
@@ -528,7 +530,7 @@ export class Importer {
         if (signal.aborted) return;
         let info: YtInfo;
         try {
-          info = await ytdlpJson(ytdlp, ["--no-playlist", url], signal);
+          info = await ytdlpJson(ytdlp, ["--no-playlist", "--", url], signal);
         } catch {
           continue;
         }

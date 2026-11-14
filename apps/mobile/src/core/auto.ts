@@ -38,6 +38,10 @@ const native = Platform.OS === 'android' ? requireOptionalNativeModule<AutoNativ
 const LIST_CAP = 300;
 const RECENT_LIMIT = 50;
 const PUBLISH_DEBOUNCE_MS = 2_000;
+/** Recents change with every song played; the car's Recent folder can lag a little behind. */
+const RECENTS_DEBOUNCE_MS = 60_000;
+/** First publish waits until the app has settled after a cold start. */
+const FIRST_PUBLISH_DELAY_MS = 5_000;
 const SHUFFLE = '*shuffle';
 const SEP = '|';
 
@@ -82,6 +86,8 @@ async function buildTree(): Promise<Node[]> {
 let publishTimer: ReturnType<typeof setTimeout> | null = null;
 let publishing = false;
 let publishAgain = false;
+/** Last snapshot handed to native; an unchanged tree isn't parsed and written again. */
+let lastPublished = '';
 
 async function publish() {
   if (!native) return;
@@ -91,7 +97,11 @@ async function publish() {
   }
   publishing = true;
   try {
-    native.setAutoLibrary(JSON.stringify(await buildTree()));
+    const json = JSON.stringify(await buildTree());
+    if (json !== lastPublished) {
+      native.setAutoLibrary(json);
+      lastPublished = json;
+    }
   } catch (e) {
     console.warn('[auto] could not publish library', errorMessage(e));
   } finally {
@@ -103,12 +113,20 @@ async function publish() {
   }
 }
 
-function schedulePublish() {
-  if (publishTimer) clearTimeout(publishTimer);
+let publishDue = 0;
+
+/** Publish after `delay`; an earlier pending publish wins, so a slow schedule never postpones a fast one. */
+function schedulePublish(delay = PUBLISH_DEBOUNCE_MS) {
+  const due = Date.now() + delay;
+  if (publishTimer) {
+    if (publishDue <= due && delay !== PUBLISH_DEBOUNCE_MS) return;
+    clearTimeout(publishTimer);
+  }
+  publishDue = due;
   publishTimer = setTimeout(() => {
     publishTimer = null;
     void publish();
-  }, PUBLISH_DEBOUNCE_MS);
+  }, delay);
 }
 
 // --- Requests from the car ---------------------------------------------------------------------
@@ -179,8 +197,11 @@ if (native) {
   // Requests that arrived before JS was listening (the car started the app).
   for (const r of native.takeAutoRequests()) void handle(r);
 
-  whenCoreReady(() => void publish());
+  whenCoreReady(() => schedulePublish(FIRST_PUBLISH_DELAY_MS));
   onInvalidate((keys) => {
-    if (keys.some((k) => k[0] === libKeys.all[0])) schedulePublish();
+    const lib = keys.filter((k) => k[0] === libKeys.all[0]);
+    if (!lib.length) return;
+    const recentsOnly = lib.every((k) => k[1] === libKeys.recents[1]);
+    schedulePublish(recentsOnly ? RECENTS_DEBOUNCE_MS : PUBLISH_DEBOUNCE_MS);
   });
 }

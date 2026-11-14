@@ -1,5 +1,5 @@
 import { FlashList } from '@shopify/flash-list';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -24,7 +24,7 @@ import { openTrackActions } from '@/ui/components/TrackActions';
 import { TrackRow } from '@/ui/components/TrackRow';
 import { plural } from '@/ui/format';
 import { haptics } from '@/ui/haptics';
-import { nav, parseOrigin } from '@/ui/nav';
+import { goBack, nav, parseOrigin } from '@/ui/nav';
 import type { SheetAnchor } from '@/ui/overlay';
 import { makeStyles, space } from '@/ui/theme';
 
@@ -51,7 +51,7 @@ export default function ArtistScreen() {
         ) : (
           <View style={[styles.root, styles.center]}>
             <EmptyState icon="person-outline" title="Artist not found" message="It may have been removed from the server or this device.">
-              <PrimaryButton label="Go back" variant="surface" onPress={() => router.back()} />
+              <PrimaryButton label="Go back" variant="surface" onPress={goBack} />
             </EmptyState>
           </View>
         )}

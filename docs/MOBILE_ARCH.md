@@ -63,7 +63,7 @@ export type DownloadStatus = 'none' | 'queued' | 'downloading' | 'done' | 'error
 - `useLocalTracks(): AppTrack[]` — imported files + downloaded remote tracks, newest first
 - `useLocalAlbums(): AlbumView[]`
 - `useLikedTracks(): AppTrack[]`, `useIsLiked(key: string): boolean`, `toggleLike(track: AppTrack): Promise<void>`
-- `useRecentlyPlayed(limit?: number): AppTrack[]` (recorded automatically by the player after 10 s of playback)
+- `useRecentlyPlayed(limit?: number): AppTrack[]` (recorded automatically by the player after 3 s of playback)
 - `usePlaylists(): Playlist[]`, `usePlaylist(id: string): { playlist: Playlist | null; tracks: AppTrack[] }`
 - `createPlaylist(name: string): Promise<string /* id */>`, `renamePlaylist(id, name)`, `deletePlaylist(id)`, `addToPlaylist(id, tracks: AppTrack[])`, `removeFromPlaylist(id, index: number)`, `reorderPlaylist(id, from: number, to: number)` — all `Promise<void>`
 

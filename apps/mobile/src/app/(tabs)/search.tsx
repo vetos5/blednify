@@ -334,7 +334,8 @@ function BrowseGrid() {
             style={[styles.tile, wide && styles.tileWide]}
             onPress={() => (b.action ? b.action() : nav.library(b.filter))}>
             <LinearGradient colors={b.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tileFill}>
-              <Text variant="subheading" numberOfLines={2} style={styles.tileLabel}>
+              {/* The tiles are fixed dark gradients in every theme, so the label is always white. */}
+              <Text variant="subheading" numberOfLines={2} style={styles.tileLabel} color="#FFFFFF">
                 {b.label}
               </Text>
               <View style={styles.tileIcon}>

@@ -10,6 +10,10 @@ if (import.meta.main) {
     console.error("LISTEN_TOKEN is not set: refusing to serve the library to anyone. Set LISTEN_TOKEN, or ALLOW_OPEN_READS=1 on a trusted LAN.");
     process.exit(1);
   }
+  // Tokens are the only thing between the internet and the library; nothing rate-limits guesses.
+  for (const [name, token] of [["LISTEN_TOKEN", config.listenToken], ["ADMIN_TOKEN", config.adminToken]] as const)
+    if (token && token.length < 16)
+      console.warn(`${name} is only ${token.length} characters; use 16+ random characters (e.g. openssl rand -hex 16).`);
   const ctx = createContext(config);
   const app = createApp(ctx);
 

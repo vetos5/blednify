@@ -51,6 +51,25 @@ describe("web app hosting", () => {
     expect(await trav.text()).not.toContain("secret");
   });
 
+  test("odd route paths still get the shell with a valid ETag (no 500)", async () => {
+    const tags = new Set<string | null>();
+    for (const path of ["/%D0%B0", "/album/%D0%9F%D0%BE%D1%88%D0%BB%D0%B0%D1%8F", '/foo"bar', "/%00"]) {
+      const res = await srv.app.request(path);
+      expect({ path, status: res.status }).toEqual({ path, status: 200 });
+      expect(res.headers.get("etag")).toMatch(/^"[\x21\x23-\x7e]+"$/);
+      tags.add(res.headers.get("etag"));
+    }
+    // Every route serves the same shell, so they share one tag.
+    expect(tags.size).toBe(1);
+  });
+
+  test("hashed folders never fall back to the shell (it would be cached as immutable)", async () => {
+    for (const path of ["/assets/whatever", "/assets/x.html", "/_expo/static/js/web/nonexistent"]) {
+      const res = await srv.app.request(path);
+      expect({ path, status: res.status }).toEqual({ path, status: 404 });
+    }
+  });
+
   test("without WEB_DIR nothing is served at /", async () => {
     const plain = testServer();
     try {

@@ -228,8 +228,8 @@ const QueueRow = memo(function QueueRow({
   return (
     <Animated.View style={[styles.rowWrap, rowStyle]}>
       <Animated.View style={[styles.underlay, underlayStyle]}>
-        <Icon name="trash-outline" size={20} color={colors.white} />
-        <Text variant="bodyStrong" color={colors.white}>
+        <Icon name="trash-outline" size={20} color={colors.onAccent} />
+        <Text variant="bodyStrong" color={colors.onAccent}>
           Remove
         </Text>
       </Animated.View>

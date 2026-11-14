@@ -118,6 +118,7 @@ export default function SettingsScreen() {
               setResult(null);
             }}
             placeholder="http://192.168.1.10:8787"
+            accessibilityLabel="Server address"
             placeholderTextColor={colors.textTertiary}
             autoCapitalize="none"
             autoCorrect={false}
@@ -139,6 +140,7 @@ export default function SettingsScreen() {
               setResult(null);
             }}
             placeholder="Access token (optional)"
+            accessibilityLabel="Access token"
             placeholderTextColor={colors.textTertiary}
             autoCapitalize="none"
             autoCorrect={false}
@@ -194,6 +196,7 @@ export default function SettingsScreen() {
                 <Text variant="caption">Pause downloads on mobile data.</Text>
               </View>
               <Switch
+                accessibilityLabel="Download on Wi-Fi only"
                 value={settings.downloadOnWifiOnly}
                 onValueChange={(v) => {
                   haptics.select();
@@ -282,6 +285,7 @@ function ToggleRow({ title, caption, value, onChange }: { title: string; caption
         <Text variant="caption">{caption}</Text>
       </View>
       <Switch
+        accessibilityLabel={title}
         value={value}
         onValueChange={(v) => {
           haptics.select();
@@ -350,6 +354,7 @@ function AdminSection() {
               setResult(null);
             }}
             placeholder="Admin token"
+            accessibilityLabel="Admin token"
             placeholderTextColor={colors.textTertiary}
             autoCapitalize="none"
             autoCorrect={false}

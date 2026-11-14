@@ -63,18 +63,21 @@ function allowedOn(net: NetworkState): boolean {
 
 let netSub: { remove(): void } | null = null;
 
+/** Stop active transfers and put them back in the queue (they resume when the policy allows). */
+function requeueActive() {
+  for (const entry of controllers.values()) {
+    entry.requeue = true;
+    entry.ctrl.abort();
+  }
+}
+
+function applyNetworkPolicy(net: NetworkState) {
+  if (allowedOn(net)) void pump();
+  else requeueActive();
+}
+
 function watchNetwork() {
-  netSub ??= addNetworkStateListener((net) => {
-    if (allowedOn(net)) {
-      pump();
-      return;
-    }
-    // Switched to a disallowed network: stop active transfers and put them back in the queue.
-    for (const entry of controllers.values()) {
-      entry.requeue = true;
-      entry.ctrl.abort();
-    }
-  });
+  netSub ??= addNetworkStateListener(applyNetworkPolicy);
 }
 
 // --- Worker ----------------------------------------------------------------------------------
@@ -290,8 +293,13 @@ export async function resumeDownloads(): Promise<void> {
 }
 
 // Downloads waiting on the Wi-Fi-only policy start as soon as the setting is relaxed.
+// Turning Wi-Fi-only on while on mobile data also stops the transfers already running.
 settingsStore.subscribe((s, prev) => {
-  if (s.downloadOnWifiOnly !== prev.downloadOnWifiOnly || s.serverUrl !== prev.serverUrl) void pump();
+  if (s.downloadOnWifiOnly !== prev.downloadOnWifiOnly && controllers.size)
+    void getNetworkStateAsync()
+      .then(applyNetworkPolicy)
+      .catch(() => undefined);
+  else if (s.downloadOnWifiOnly !== prev.downloadOnWifiOnly || s.serverUrl !== prev.serverUrl) void pump();
 });
 
 // --- Hooks -----------------------------------------------------------------------------------

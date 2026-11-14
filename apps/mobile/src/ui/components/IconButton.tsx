@@ -71,7 +71,7 @@ export function IconButton({
       <Icon
         name={icon}
         size={size}
-        color={color ?? (variant === 'accent' ? colors.onAccent : colors.text)}
+        color={color ?? (variant === 'accent' ? colors.onAccent : variant === 'scrim' ? '#FFFFFF' : colors.text)}
         strokeWidth={strokeWidth}
       />
     </PressableScale>

@@ -1,5 +1,4 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { memo, useEffect, useRef, useState } from 'react';
 import {
@@ -31,18 +30,18 @@ import { EmptyState } from '@/ui/components/EmptyState';
 import { Icon } from '@/ui/components/Icon';
 import { IconButton } from '@/ui/components/IconButton';
 import { PressableScale } from '@/ui/components/PressableScale';
+import { PrimaryButton } from '@/ui/components/PrimaryButton';
 import { SeekBar } from '@/ui/components/SeekBar';
 import { Text } from '@/ui/components/Text';
 import { useWideRedirect } from '@/ui/desktop/redirect';
 import { haptics } from '@/ui/haptics';
+import { goBack } from '@/ui/nav';
 import { ForceDark, gradientFor, makeStyles, radius, space, useColors } from '@/ui/theme';
 
 /** After the user scrolls by hand, wait this long before following the song again. */
 const USER_SCROLL_HOLD_MS = 3500;
 
-function close() {
-  if (router.canGoBack()) router.back();
-}
+const close = goBack;
 
 /** Immersive screen over artwork: stays dark in light themes. */
 export default function LyricsScreen() {
@@ -59,7 +58,7 @@ function LyricsScreenContent() {
   const styles = useStyles();
   const colors = useColors();
   const current = usePlayer((s) => s.current);
-  const { lyrics, isLoading, isError } = useLyrics(current);
+  const { lyrics, isLoading, isError, refetch } = useLyrics(current);
   usePrefetchLyrics(usePlayer((s) => s.queue[s.index + 1]));
   const insets = useSafeAreaInsets();
   const [tint] = gradientFor(current?.album || current?.title || '');
@@ -100,7 +99,7 @@ function LyricsScreenContent() {
         ) : hasLyrics(lyrics) ? (
           <PlainLyrics key={current.key} lyrics={lyrics!} />
         ) : (
-          <NoLyrics instrumental={!!lyrics?.instrumental} failed={isError} />
+          <NoLyrics instrumental={!!lyrics?.instrumental} failed={isError} onRetry={refetch} />
         )}
       </View>
 
@@ -251,7 +250,7 @@ function PlainLyrics({ lyrics }: { lyrics: Lyrics }) {
   );
 }
 
-function NoLyrics({ instrumental, failed }: { instrumental: boolean; failed: boolean }) {
+function NoLyrics({ instrumental, failed, onRetry }: { instrumental: boolean; failed: boolean; onRetry(): void }) {
   const styles = useStyles();
   return (
     <View style={[styles.flex, styles.center]}>
@@ -264,8 +263,9 @@ function NoLyrics({ instrumental, failed }: { instrumental: boolean; failed: boo
             : failed
               ? 'Check your connection and try again.'
               : 'Put a .lrc file with the same name next to the song on your server to add them.'
-        }
-      />
+        }>
+        {failed && !instrumental ? <PrimaryButton label="Try again" icon="refresh" variant="surface" onPress={onRetry} /> : null}
+      </EmptyState>
     </View>
   );
 }

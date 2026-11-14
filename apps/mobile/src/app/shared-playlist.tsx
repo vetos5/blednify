@@ -1,5 +1,6 @@
 import { FlashList } from '@shopify/flash-list';
 import { useLocalSearchParams } from 'expo-router';
+import { useState } from 'react';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -35,6 +36,7 @@ export default function SharedPlaylistScreen() {
   const chromeInset = useChromeInset('detail');
   const hasServer = !!useServerBase();
   const { tracks, missing, isLoading } = useServerTracks(ids);
+  const [saving, setSaving] = useState(false);
   const path = `/shared-playlist?n=${encodeURIComponent(name)}&t=${ids.join('.')}`;
 
   if (!tracks.length) {
@@ -64,13 +66,16 @@ export default function SharedPlaylistScreen() {
     player.playTracks(tracks, index);
   };
   const save = async () => {
+    // A double tap would save the playlist twice.
+    if (saving) return;
+    setSaving(true);
     const id = await attempt(
       createPlaylist(name).then(async (newId) => {
         await addToPlaylist(newId, tracks);
         return newId;
       }),
       `Saved “${name}” to your playlists`,
-    );
+    ).finally(() => setSaving(false));
     if (id) nav.playlist(id);
   };
 
@@ -92,7 +97,7 @@ export default function SharedPlaylistScreen() {
             onShuffle={() => player.playTracks(tracks, undefined, { shuffle: true })}
             actions={
               <>
-                <IconButton icon="add" label="Save to my playlists" variant="filled" haptic onPress={() => void save()} />
+                <IconButton icon="add" label="Save to my playlists" variant="filled" haptic disabled={saving} onPress={() => void save()} />
                 <IconButton
                   icon="share-outline"
                   label="Share playlist"

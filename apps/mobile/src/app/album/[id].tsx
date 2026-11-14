@@ -1,5 +1,5 @@
 import { FlashList } from '@shopify/flash-list';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -21,7 +21,7 @@ import { openTrackActions } from '@/ui/components/TrackActions';
 import { TrackRow, TrackTableHeader } from '@/ui/components/TrackRow';
 import { humanDuration, plural } from '@/ui/format';
 import { haptics } from '@/ui/haptics';
-import { nav, parseOrigin } from '@/ui/nav';
+import { goBack, nav, parseOrigin } from '@/ui/nav';
 import { showSheet, showToast, type SheetAnchor } from '@/ui/overlay';
 import { makeStyles, radius, space } from '@/ui/theme';
 
@@ -44,7 +44,7 @@ export default function AlbumScreen() {
         ) : (
           <View style={[styles.root, styles.center]}>
             <EmptyState icon="disc-outline" title="Album not found" message="It may have been removed from the server or this device.">
-              <PrimaryButton label="Go back" variant="surface" onPress={() => router.back()} />
+              <PrimaryButton label="Go back" variant="surface" onPress={goBack} />
             </EmptyState>
           </View>
         )}

@@ -5,6 +5,12 @@ import type { Origin } from '@/core';
 import { setPanel } from './desktop/store';
 import { isWideNow } from './layout';
 
+/** Back, or Home for a page opened straight from a link or after a reload (nothing to go back to). */
+export function goBack() {
+  if (router.canGoBack()) router.back();
+  else router.replace('/');
+}
+
 export const nav = {
   album: (id: string, origin: Origin) => router.push({ pathname: '/album/[id]', params: { id, origin } }),
   artist: (id: string, origin: Origin) => router.push({ pathname: '/artist/[id]', params: { id, origin } }),
@@ -39,7 +45,7 @@ function toTabs(href: Parameters<typeof router.navigate>[0]) {
   else router.navigate(href);
 }
 
-export type LibraryFilter = 'playlists' | 'recents' | 'albums' | 'liked' | 'downloaded' | 'device';
+export type LibraryFilter = 'playlists' | 'recents' | 'albums' | 'songs' | 'liked' | 'downloaded' | 'device';
 
 export function parseOrigin(v: string | string[] | undefined): Origin {
   return v === 'local' ? 'local' : 'remote';
