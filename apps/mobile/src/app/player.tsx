@@ -246,19 +246,17 @@ function NowPlaying({
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isPlaying = usePlayer((s) => s.isPlaying);
-  const { lyrics, isLoading: lyricsLoading } = useLyrics(track);
+  const { lyrics } = useLyrics(track);
   usePrefetchLyrics(usePlayer((s) => s.queue[s.index + 1]));
   const withLyrics = hasLyrics(lyrics);
-  // Keep the previous layout while the next track's lyrics load, so the cover doesn't
-  // flash at the larger no-lyrics size on every skip.
-  const [layoutLyrics, setLayoutLyrics] = useState(withLyrics);
-  if (!lyricsLoading && layoutLyrics !== withLyrics) setLayoutLyrics(withLyrics);
 
+  // One layout for every song: the cover size, the title row and the lyrics hint's slot never depend on the
+  // track, so skipping never moves anything (covers used to resize between songs with and without lyrics, and
+  // jump while the next song's lyrics loaded).
   const isSmallScreen = height <= 740;
-  const art = Math.min(
-    width - space.xl * 2,
-    height * (layoutLyrics ? (isSmallScreen ? 0.3 : 0.33) : isSmallScreen ? 0.36 : 0.4),
-  );
+  // The cover fills the space left for it (the same for every song); until that is measured, a safe guess.
+  const [artBox, setArtBox] = useState(0);
+  const art = Math.min(width - space.xl * 2, artBox > 0 ? artBox - space.sm : height * (isSmallScreen ? 0.3 : 0.33));
 
   const goArtist = () => {
     goBack();
@@ -301,13 +299,13 @@ function NowPlaying({
           />
         </View>
 
-        <View style={styles.artArea}>
+        <View style={styles.artArea} onLayout={(e) => setArtBox(Math.floor(e.nativeEvent.layout.height))}>
           <PulsingArtwork track={track} size={art} playing={isPlaying} />
         </View>
 
         <View style={styles.titleRow}>
           <View style={styles.titleText}>
-            <Text variant="title" numberOfLines={2}>
+            <Text variant="title" numberOfLines={1}>
               {track.title}
             </Text>
             <Pressable
@@ -331,19 +329,23 @@ function NowPlaying({
 
         <Transport />
 
-        {withLyrics ? (
-          <Pressable
-            onPress={onScrollToLyrics}
-            hitSlop={8}
-            style={styles.lyricsHint}
-            accessibilityRole="button"
-            accessibilityLabel="Scroll to lyrics">
-            <Text variant="micro" color={colors.textSecondary} style={styles.lyricsHintText}>
-              LYRICS
-            </Text>
-            <Icon name="chevron-down" size={14} color={colors.textSecondary} />
-          </Pressable>
-        ) : null}
+        {/* Always laid out (hidden without lyrics) so the screen doesn't shift when it comes and goes. */}
+        <Pressable
+          onPress={onScrollToLyrics}
+          disabled={!withLyrics}
+          hitSlop={8}
+          style={[styles.lyricsHint, !withLyrics && styles.hidden]}
+          pointerEvents={withLyrics ? 'auto' : 'none'}
+          accessibilityElementsHidden={!withLyrics}
+          importantForAccessibility={withLyrics ? 'auto' : 'no-hide-descendants'}
+          aria-hidden={!withLyrics}
+          accessibilityRole="button"
+          accessibilityLabel="Scroll to lyrics">
+          <Text variant="micro" color={colors.textSecondary} style={styles.lyricsHintText}>
+            LYRICS
+          </Text>
+          <Icon name="chevron-down" size={14} color={colors.textSecondary} />
+        </Pressable>
 
         <View style={styles.bottomRow}>
           <DownloadButton track={track} />
@@ -414,7 +416,8 @@ function PulsingArtwork({
     pulse.set(withSpring(playing ? 1 : 0.86, { damping: 15, stiffness: 140 }));
   }, [playing, pulse]);
   useEffect(() => {
-    fit.set(withTiming(size / base, { duration: 220, easing: Easing.out(Easing.quad) }));
+    // Size only changes with the window (never per song), so no animation.
+    fit.set(size / base);
   }, [size, base, fit]);
   const style = useAnimatedStyle(() => ({
     transform: [{ scale: pulse.get() * fit.get() }],
@@ -547,6 +550,7 @@ const useStyles = makeStyles((colors) => ({
     paddingVertical: space.xxs,
     alignSelf: 'center',
   },
+  hidden: { opacity: 0 },
   lyricsHintText: {
     letterSpacing: 1,
     fontWeight: '700',
