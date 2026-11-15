@@ -15,7 +15,7 @@ import {
   type ApiTrack,
 } from './api';
 import { fetchLocalAlbumTracks, fetchLocalArtistTracks, searchLocal } from './library';
-import { libKeys } from './query-client';
+import { libKeys, queryClient } from './query-client';
 import { normalizeServerUrl, settingsStore, useServerBase } from './settings';
 import {
   albumsFromTracks,
@@ -205,8 +205,29 @@ export function useRemoteAlbums(): { albums: AlbumView[]; isLoading: boolean; is
   return { albums, isLoading: q.isLoading, isError: q.isError && !q.data, refetch: () => void refetch() };
 }
 
+/**
+ * A server album the app already holds from a list (home, library, an artist page, search). Its header can be
+ * drawn on the first frame instead of after the album request, so opening an album does not pop in mid-transition.
+ */
+function cachedRemoteAlbum(base: string, id: string): ApiAlbum | undefined {
+  const find = (list: readonly ApiAlbum[] | undefined) => list?.find((a) => a.id === id);
+  const hit = find(queryClient.getQueryData<ApiAlbum[]>(['albums', base]));
+  if (hit) return hit;
+  for (const key of ['artist', 'search']) {
+    for (const [, data] of queryClient.getQueriesData<{ albums?: ApiAlbum[] }>({ queryKey: [key, base] })) {
+      const a = find(data?.albums);
+      if (a) return a;
+    }
+  }
+  return undefined;
+}
+
 export function useAlbum(id: string, origin: Origin): { album: AlbumView | null; tracks: AppTrack[]; isLoading: boolean } {
   const base = useServerBase();
+  const seed = useMemo(
+    () => (origin === 'remote' && base && id ? cachedRemoteAlbum(base, id) : undefined),
+    [origin, base, id],
+  );
   const remote = useQuery({
     queryKey: ['album', base, id],
     queryFn: ({ signal }) =>
@@ -228,8 +249,10 @@ export function useAlbum(id: string, origin: Origin): { album: AlbumView | null;
   const tracks = useResolvedTracks(remoteTracks ?? local.data);
   const album = useMemo(() => {
     if (remote.data) return fromApiAlbum(remote.data, base);
+    // Not after an error: the album may be gone, and offline the downloaded copies carry their own cover.
+    if (seed && !remote.isError) return fromApiAlbum(seed, base);
     return albumsFromTracks(tracks)[0] ?? null;
-  }, [remote.data, base, tracks]);
+  }, [remote.data, remote.isError, seed, base, tracks]);
   const isLoading =
     origin === 'remote' ? remote.isLoading && !local.data?.length : local.isLoading;
   return { album, tracks, isLoading };
