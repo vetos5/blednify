@@ -19,6 +19,7 @@ import {
   type ImportJob,
 } from '@/core';
 import { attempt, errorMessage } from '@/ui/actions';
+import { confirm } from '@/ui/components/ConfirmSheet';
 import { Backdrop } from '@/ui/components/Backdrop';
 import { Chip } from '@/ui/components/Chip';
 import { Icon } from '@/ui/components/Icon';
@@ -221,10 +222,12 @@ function ImportCard({ entry }: { entry: ImportEntry }) {
 
   return (
     <View style={styles.job}>
+      <View style={styles.jobHead}>
       <PressableScale
         onPress={() => (playlistId ? nav.playlist(playlistId) : setOpen((v) => !v))}
+        accessibilityRole="button"
         accessibilityLabel={job.name ?? 'Import'}
-        style={styles.jobHead}>
+        style={styles.jobMain}>
         <View style={styles.art}>
           {playlistId || cover ? (
             <JobArtwork job={job} />
@@ -242,14 +245,25 @@ function ImportCard({ entry }: { entry: ImportEntry }) {
             {summary(job)}
           </Text>
         </View>
+      </PressableScale>
         {active ? (
-          <IconButton icon="close" label="Cancel import" color={colors.textSecondary} onPress={() => void attempt(cancelImport(job.id))} />
+          <IconButton icon="close" label="Cancel import" color={colors.textSecondary} onPress={() =>
+              confirm({
+                title: 'Cancel import?',
+                message: `${job.done} of ${job.total} songs are already imported and stay in your library. The rest will be skipped.`,
+                confirmLabel: 'Cancel import',
+                cancelLabel: 'Keep importing',
+                destructive: true,
+                onConfirm: () => void attempt(cancelImport(job.id)),
+              })
+            }
+          />
         ) : job.failed > 0 || job.state === 'failed' ? (
           <IconButton icon="refresh" label="Retry failed songs" onPress={() => void attempt(retryImport(job.id))} />
         ) : (
           <IconButton icon="close" label="Remove from list" color={colors.textSecondary} onPress={() => dismissImport(job.id)} />
         )}
-      </PressableScale>
+      </View>
       {active && job.total ? (
         <View style={styles.bar}>
           <View style={[styles.barFill, { width: `${Math.round(progress * 100)}%` }]} />
@@ -339,6 +353,7 @@ const useStyles = makeStyles((colors) => ({
     backgroundColor: colors.surface,
   },
   jobHead: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  jobMain: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space.md },
   art: { width: 56, height: 56, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface2, overflow: 'hidden' },
   meta: { flex: 1, minWidth: 0, gap: 2 },
   bar: { height: 3, borderRadius: 2, backgroundColor: colors.surface3, overflow: 'hidden' },

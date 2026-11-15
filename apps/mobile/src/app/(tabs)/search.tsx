@@ -290,6 +290,7 @@ function RecentHistoryRow({
       title={title}
       subtitle={subtitle}
       onPress={onPress}
+      nestedActions
       trailing={
         <IconButton
           icon="close"

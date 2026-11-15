@@ -1,6 +1,5 @@
-import { FlashList } from '@shopify/flash-list';
-import { memo, useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { FlatList, Pressable, StyleSheet, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
@@ -25,10 +24,15 @@ import { Icon } from '@/ui/components/Icon';
 import { ScreenHeader } from '@/ui/components/ScreenHeader';
 import { Text } from '@/ui/components/Text';
 import { useWideRedirect } from '@/ui/desktop/redirect';
+import { removeFromQueueWithUndo } from '@/ui/actions';
 import { haptics } from '@/ui/haptics';
 import { makeStyles, space, TRACK_ROW_HEIGHT, useColors } from '@/ui/theme';
 
 const ROW_H = TRACK_ROW_HEIGHT;
+/** Dragging within this distance of the list's top or bottom edge scrolls it. */
+const EDGE = ROW_H * 1.25;
+/** Auto-scroll speed at the very edge, in px per second. */
+const MAX_SCROLL_SPEED = 1100;
 
 type DragState = {
   /** Index (within "up next") of the row being dragged, -1 when idle. */
@@ -39,6 +43,9 @@ type DragState = {
   /** List container; measured on the UI thread at drag start (never mid-transition). */
   container: AnimatedRef<Animated.View>;
   count: SharedValue<number>;
+  /** Current list scroll offset, and its value when the drag started: the row under the finger moves with the list. */
+  scroll: SharedValue<number>;
+  scroll0: SharedValue<number>;
 };
 
 type Item = { track: AppTrack; abs: number; rel: number };
@@ -64,13 +71,54 @@ function QueueScreenContent() {
   const top = useSharedValue(0);
   const container = useAnimatedRef<Animated.View>();
   const count = useSharedValue(upNext.length);
-  const drag = useMemo<DragState>(() => ({ from, dy, top, container, count }), [from, dy, top, container, count]);
+  const scroll = useSharedValue(0);
+  const scroll0 = useSharedValue(0);
+  const drag = useMemo<DragState>(
+    () => ({ from, dy, top, container, count, scroll, scroll0 }),
+    [from, dy, top, container, count, scroll, scroll0],
+  );
+  const listRef = useRef<FlatList<Item>>(null);
+  const metrics = useRef({ offset: 0, content: 0, viewport: 0 });
+
 
   useEffect(() => {
     count.set(upNext.length);
   }, [count, upNext.length]);
 
   const [dragging, setDragging] = useState<number | null>(null);
+
+  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    metrics.current = { offset: contentOffset.y, content: contentSize.height, viewport: layoutMeasurement.height };
+    scroll.set(contentOffset.y);
+  };
+
+  // While a row is held near the top or bottom edge, keep scrolling the list (the list itself is locked to touch).
+  useEffect(() => {
+    if (dragging === null) return;
+    let frame = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min(50, now - last);
+      last = now;
+      const m = metrics.current;
+      const centre = top.get() + dy.get() + ROW_H / 2;
+      let speed = 0;
+      if (centre < EDGE) speed = -Math.min(1, (EDGE - centre) / EDGE);
+      else if (centre > m.viewport - EDGE) speed = Math.min(1, (centre - (m.viewport - EDGE)) / EDGE);
+      if (speed !== 0 && m.viewport > 0) {
+        const next = Math.max(0, Math.min(Math.max(0, m.content - m.viewport), m.offset + (speed * MAX_SCROLL_SPEED * dt) / 1000));
+        if (next !== m.offset) {
+          m.offset = next;
+          scroll.set(next);
+          listRef.current?.scrollToOffset({ offset: next, animated: false });
+        }
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [dragging, top, dy, scroll]);
 
   const startDrag = (rel: number) => {
     haptics.press();
@@ -96,11 +144,22 @@ function QueueScreenContent() {
     <View style={styles.root}>
       <Backdrop />
       <ScreenHeader title="Queue" backIcon="chevron-down" />
-      <Animated.View ref={container} style={styles.flex}>
-        <FlashList
+      <Animated.View
+        ref={container}
+        style={styles.flex}
+        onLayout={(e) => {
+          metrics.current.viewport = e.nativeEvent.layout.height;
+        }}>
+        <FlatList
+          ref={listRef}
           data={upNext}
           keyExtractor={(item) => `${item.abs}:${item.track.key}`}
           scrollEnabled={dragging === null}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          onContentSizeChange={(_, h) => {
+            metrics.current.content = h;
+          }}
           contentContainerStyle={{ paddingBottom: insets.bottom + space.xl }}
           ListHeaderComponent={
             <View>
@@ -168,7 +227,7 @@ const QueueRow = memo(function QueueRow({
 
   const remove = () => {
     haptics.tap();
-    player.removeFromQueue(abs);
+    removeFromQueueWithUndo(abs);
   };
 
   const swipe = usePanGesture({
@@ -198,6 +257,7 @@ const QueueRow = memo(function QueueRow({
       'worklet';
       drag.top.set(e.absoluteY - e.y - (measure(drag.container)?.pageY ?? 0));
       drag.dy.set(0);
+      drag.scroll0.set(drag.scroll.get());
       drag.from.set(rel);
       scheduleOnRN(onDragStart, rel);
     },
@@ -207,7 +267,7 @@ const QueueRow = memo(function QueueRow({
     },
     onDeactivate: () => {
       'worklet';
-      const to = Math.max(0, Math.min(drag.count.get() - 1, rel + Math.round(drag.dy.get() / ROW_H)));
+      const to = Math.max(0, Math.min(drag.count.get() - 1, rel + Math.round((drag.dy.get() + drag.scroll.get() - drag.scroll0.get()) / ROW_H)));
       scheduleOnRN(onDragEnd, rel, to);
     },
   });
@@ -216,7 +276,7 @@ const QueueRow = memo(function QueueRow({
     const from = drag.from.get();
     if (from < 0) return { opacity: 1, transform: [{ translateY: 0 }] };
     if (from === rel) return { opacity: 0, transform: [{ translateY: 0 }] };
-    const to = Math.max(0, Math.min(drag.count.get() - 1, from + Math.round(drag.dy.get() / ROW_H)));
+    const to = Math.max(0, Math.min(drag.count.get() - 1, from + Math.round((drag.dy.get() + drag.scroll.get() - drag.scroll0.get()) / ROW_H)));
     let shift = 0;
     if (from < rel && rel <= to) shift = -ROW_H;
     else if (to <= rel && rel < from) shift = ROW_H;

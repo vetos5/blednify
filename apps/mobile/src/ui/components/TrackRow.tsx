@@ -42,6 +42,9 @@ function PhoneTrackRow({ track, index, onPress, onMore, leading = 'artwork', sub
   const sub = subtitle === 'artist-album' && track.album ? `${track.artist} · ${track.album}` : track.artist;
 
   return (
+    // The "more" button is a sibling of the row's main button, not nested in it: nested buttons are
+    // unreachable with a screen reader on web.
+    <View style={styles.row}>
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${track.title} by ${track.artist}`}
@@ -49,7 +52,7 @@ function PhoneTrackRow({ track, index, onPress, onMore, leading = 'artwork', sub
       onLongPress={onMore ? () => onMore(track, index) : undefined}
       delayLongPress={320}
       android_ripple={{ color: colors.ripple }}
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+      style={({ pressed }) => [styles.main, pressed && styles.pressed]}>
       {leading === 'artwork' ? (
         <View>
           <Artwork uri={track.artworkUri} label={track.album || track.title} size={ARTWORK} recyclingKey={track.key} />
@@ -87,12 +90,13 @@ function PhoneTrackRow({ track, index, onPress, onMore, leading = 'artwork', sub
           {formatDuration(track.durationMs)}
         </Text>
       ) : null}
+    </Pressable>
       {onMore ? (
         <Pressable accessibilityRole="button" accessibilityLabel="More options" hitSlop={10} onPress={() => onMore(track, index)} style={styles.more}>
           <Icon name="ellipsis-horizontal" size={20} color={colors.textSecondary} />
         </Pressable>
       ) : null}
-    </Pressable>
+    </View>
   );
 }
 
@@ -115,7 +119,9 @@ function WideTrackRow({ track, index, onPress, onMore, leading = 'artwork', subt
 
   return (
     <WebPressable
-      accessibilityRole="button"
+      // A group, not a button: the row holds its own buttons (play, artist, album, like, more), and a screen
+      // reader can't reach buttons nested inside one.
+      accessibilityRole="group"
       accessibilityLabel={`${track.title} by ${track.artist}`}
       accessibilityHint="Double-click or press Enter to play"
       onPress={(e) => {
@@ -249,6 +255,7 @@ function WideLike({ track, visible }: { track: AppTrack; visible: boolean }) {
 
 const useStyles = makeStyles((colors) => ({
   row: { height: TRACK_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.lg, gap: space.md },
+  main: { flex: 1, minWidth: 0, height: TRACK_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', gap: space.md, marginLeft: -space.lg, paddingLeft: space.lg },
   pressed: { backgroundColor: colors.pressed },
   eqOverlay: {
     ...StyleSheet.absoluteFill,
