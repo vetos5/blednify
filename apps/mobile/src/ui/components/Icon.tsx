@@ -1,79 +1,78 @@
-import {
-  Activity,
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  CheckCheck,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
-  Circle,
-  CircleArrowDown,
-  Copy,
-  ExternalLink,
-  CircleCheck,
-  CircleExclamationPoint,
-  CircleMinus,
-  CirclePlus,
-  CircleX,
-  Clock,
-  CloudOff,
-  Disc,
-  EighthNote,
-  EighthNotes,
-  Ellipsis,
-  FastForward,
-  Folder,
-  FolderOpen,
-  Heart,
-  House,
-  Info,
-  Keyboard,
-  Key,
-  Link,
-  Library,
-  List,
-  ListEnd,
-  ListMusic,
-  Maximize2,
-  Menu,
-  Mic,
-  MicOff,
-  MicVocal,
-  Minimize2,
-  Pause,
-  Palette,
-  Pencil,
-  Play,
-  Plus,
-  RefreshCw,
-  Repeat,
-  Search,
-  Server,
-  Settings,
-  Share2,
-  ShieldCheck,
-  Shuffle,
-  Signal,
-  SkipBack,
-  SkipForward,
-  Smartphone,
-  Sparkles,
-  Square,
-  Trash,
-  TrendingUp,
-  Type,
-  Upload,
-  User,
-  Volume1,
-  Volume2,
-  VolumeX,
-  Wifi,
-  X,
-  type LucideIcon,
-} from 'lucide-react-native';
+// One module per icon: the package barrel pulls every lucide icon (~1.7 MB) into the web bundle.
+import Activity from 'lucide-react-native/icons/activity';
+import ArrowDown from 'lucide-react-native/icons/arrow-down';
+import ArrowLeft from 'lucide-react-native/icons/arrow-left';
+import ArrowRight from 'lucide-react-native/icons/arrow-right';
+import Check from 'lucide-react-native/icons/check';
+import CheckCheck from 'lucide-react-native/icons/check-check';
+import ChevronDown from 'lucide-react-native/icons/chevron-down';
+import ChevronLeft from 'lucide-react-native/icons/chevron-left';
+import ChevronRight from 'lucide-react-native/icons/chevron-right';
+import ChevronUp from 'lucide-react-native/icons/chevron-up';
+import Circle from 'lucide-react-native/icons/circle';
+import CircleArrowDown from 'lucide-react-native/icons/circle-arrow-down';
+import CircleCheck from 'lucide-react-native/icons/circle-check';
+import CircleExclamationPoint from 'lucide-react-native/icons/circle-exclamation-point';
+import CircleMinus from 'lucide-react-native/icons/circle-minus';
+import CirclePlus from 'lucide-react-native/icons/circle-plus';
+import CircleX from 'lucide-react-native/icons/circle-x';
+import Clock from 'lucide-react-native/icons/clock';
+import CloudOff from 'lucide-react-native/icons/cloud-off';
+import Copy from 'lucide-react-native/icons/copy';
+import Disc from 'lucide-react-native/icons/disc';
+import EighthNote from 'lucide-react-native/icons/eighth-note';
+import EighthNotes from 'lucide-react-native/icons/eighth-notes';
+import Ellipsis from 'lucide-react-native/icons/ellipsis';
+import ExternalLink from 'lucide-react-native/icons/external-link';
+import FastForward from 'lucide-react-native/icons/fast-forward';
+import Folder from 'lucide-react-native/icons/folder';
+import FolderOpen from 'lucide-react-native/icons/folder-open';
+import Heart from 'lucide-react-native/icons/heart';
+import House from 'lucide-react-native/icons/house';
+import Info from 'lucide-react-native/icons/info';
+import Key from 'lucide-react-native/icons/key';
+import Keyboard from 'lucide-react-native/icons/keyboard';
+import Library from 'lucide-react-native/icons/library';
+import Link from 'lucide-react-native/icons/link';
+import List from 'lucide-react-native/icons/list';
+import ListEnd from 'lucide-react-native/icons/list-end';
+import ListMusic from 'lucide-react-native/icons/list-music';
+import Maximize2 from 'lucide-react-native/icons/maximize-2';
+import Menu from 'lucide-react-native/icons/menu';
+import Mic from 'lucide-react-native/icons/mic';
+import MicOff from 'lucide-react-native/icons/mic-off';
+import MicVocal from 'lucide-react-native/icons/mic-vocal';
+import Minimize2 from 'lucide-react-native/icons/minimize-2';
+import Palette from 'lucide-react-native/icons/palette';
+import Pause from 'lucide-react-native/icons/pause';
+import Pencil from 'lucide-react-native/icons/pencil';
+import Play from 'lucide-react-native/icons/play';
+import Plus from 'lucide-react-native/icons/plus';
+import RefreshCw from 'lucide-react-native/icons/refresh-cw';
+import Repeat from 'lucide-react-native/icons/repeat';
+import Search from 'lucide-react-native/icons/search';
+import Server from 'lucide-react-native/icons/server';
+import Settings from 'lucide-react-native/icons/settings';
+import Share2 from 'lucide-react-native/icons/share-2';
+import ShieldCheck from 'lucide-react-native/icons/shield-check';
+import Shuffle from 'lucide-react-native/icons/shuffle';
+import Signal from 'lucide-react-native/icons/signal';
+import SkipBack from 'lucide-react-native/icons/skip-back';
+import SkipForward from 'lucide-react-native/icons/skip-forward';
+import Smartphone from 'lucide-react-native/icons/smartphone';
+import Sparkles from 'lucide-react-native/icons/sparkles';
+import Square from 'lucide-react-native/icons/square';
+import Trash from 'lucide-react-native/icons/trash';
+import TrendingUp from 'lucide-react-native/icons/trending-up';
+import Type from 'lucide-react-native/icons/type';
+import Upload from 'lucide-react-native/icons/upload';
+import User from 'lucide-react-native/icons/user';
+import Volume1 from 'lucide-react-native/icons/volume-1';
+import Volume2 from 'lucide-react-native/icons/volume-2';
+import VolumeX from 'lucide-react-native/icons/volume-x';
+import Wifi from 'lucide-react-native/icons/wifi';
+import X from 'lucide-react-native/icons/x';
+import type { LucideIcon } from 'lucide-react-native';
 
 import Svg, { Path } from 'react-native-svg';
 

@@ -2,14 +2,11 @@ import QRCode from 'qrcode';
 import { useMemo } from 'react';
 import Svg, { Path, Rect } from 'react-native-svg';
 
-/** Payloads above this make modules too small to scan off a phone screen. */
-export const QR_MAX_LENGTH = 1200;
-
 /**
  * QR code drawn as one SVG path. Always dark modules on white with a quiet zone: scanners expect that
  * contrast, so it ignores the app theme on purpose.
  */
-export function QrCode({ value, size }: { value: string; size: number }) {
+export default function QrCodeSvg({ value, size }: { value: string; size: number }) {
   const { d, count } = useMemo(() => {
     const qr = QRCode.create(value, { errorCorrectionLevel: value.length > 400 ? 'L' : 'M' });
     const n = qr.modules.size;
