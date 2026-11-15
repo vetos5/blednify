@@ -42,6 +42,18 @@ const hasMediaSession = () => typeof navigator !== 'undefined' && 'mediaSession'
 
 let seq = 0;
 
+/** True when `uri` can't be fetched right now (no connection, timeout, or a 5xx/408/429 "try again" status). */
+async function isServerUnavailable(uri: string): Promise<boolean> {
+  try {
+    const res = await fetch(uri, { headers: { Range: 'bytes=0-0' }, credentials: 'include', signal: AbortSignal.timeout(8_000) });
+    void res.body?.cancel().catch(() => undefined);
+    const s = res.status;
+    return s === 408 || s === 429 || s === 502 || s === 503 || s === 504 || (s >= 520 && s <= 530);
+  } catch {
+    return true;
+  }
+}
+
 class WebPlaylist {
   readonly id = `web-playlist-${++seq}`;
   private sources: Source[] = [];
@@ -337,8 +349,18 @@ class WebPlaylist {
             : 'Track could not be played';
     this.isLoaded = false;
     this.buffering = false;
-    const network = err?.code === MediaError.MEDIA_ERR_NETWORK || (typeof navigator !== 'undefined' && navigator.onLine === false);
-    this.emit({ error: err?.message ? `${reason} (${err.message})` : reason, network });
+    const error = err?.message ? `${reason} (${err.message})` : reason;
+    if (err?.code === MediaError.MEDIA_ERR_NETWORK || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+      this.emit({ error, network: true });
+      return;
+    }
+    // A proxy or tunnel answering 502 looks like a broken file to the media element. Ask the server directly, so a
+    // server hiccup is retried instead of skipping the song.
+    const uri = this.loadedUri;
+    const slot = this.loaded;
+    void isServerUnavailable(uri).then((network) => {
+      if (!this.dead && this.loadedUri === uri && this.loaded === slot) this.emit({ error, network });
+    });
   }
 
   private status(): Status {

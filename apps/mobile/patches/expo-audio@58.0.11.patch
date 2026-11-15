@@ -98,10 +98,32 @@ index fb2d0b57fb8718df04e5c073b70837b2658f2c16..fea841352cb878f941672b6c8eb70f10
        serviceConnection.playbackServiceBinder?.service?.unregisterPlayable()
      }
 diff --git a/android/src/main/java/expo/modules/audio/AudioPlaylist.kt b/android/src/main/java/expo/modules/audio/AudioPlaylist.kt
-index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..95a389c7f9afd04bfd1f7ed56d82ae511e0d870d 100644
+index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..94ea35743c1978c8dd9de1e5dfeb18c1bb4145a9 100644
 --- a/android/src/main/java/expo/modules/audio/AudioPlaylist.kt
 +++ b/android/src/main/java/expo/modules/audio/AudioPlaylist.kt
-@@ -197,7 +197,7 @@ class AudioPlaylist(
+@@ -107,11 +107,20 @@ class AudioPlaylist(
+   }
+ 
+   override fun onPlayerError(error: PlaybackException) {
++    // Blednify patch: report the HTTP status too, so JS can tell a server/proxy hiccup (502 while a tunnel
++    // reconnects) from a track that is really gone (404).
++    var cause: Throwable? = error
++    var httpStatus: Int? = null
++    while (cause != null && httpStatus == null) {
++      if (cause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) httpStatus = cause.responseCode
++      cause = cause.cause
++    }
+     sendStatusUpdate(
+       mapOf(
+         "error" to mapOf(
+           "message" to error.message,
+-          "code" to error.errorCode
++          "code" to error.errorCode,
++          "httpStatus" to httpStatus
+         )
+       )
+     )
+@@ -197,7 +206,7 @@ class AudioPlaylist(
    }
  
    override fun assignBasicMediaSession() {
@@ -110,7 +132,7 @@ index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..95a389c7f9afd04bfd1f7ed56d82ae51
      mediaSession = buildBasicMediaSession(appContext?.reactContext ?: return, ref) { requestPlay() }
    }
  
-@@ -249,7 +249,7 @@ class AudioPlaylist(
+@@ -249,7 +258,7 @@ class AudioPlaylist(
  
    override fun releasePlayer() {
      serviceConnection.release()
@@ -137,7 +159,7 @@ index 81819c1d771bdeec093bb35a65a5e1e1af0cf9d7..228797c3ef0ac156463863c7393a54b0
 +  if (session !is androidx.media3.session.MediaLibraryService.MediaLibrarySession) session.release()
 +}
 diff --git a/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt b/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
-index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..117fc394cc4085f038cef8b9d9ad0ef520989bc0 100644
+index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f308eca172c 100644
 --- a/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
 +++ b/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
 @@ -13,14 +13,16 @@ import android.graphics.BitmapFactory
@@ -185,7 +207,60 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..117fc394cc4085f038cef8b9d9ad0ef5
    private var sessionMetadataPlayer: MetadataInjectingPlayer? = null
    private var currentMetadata: Metadata? = null
    private var currentPlayable: LockScreenPlayable? = null
-@@ -134,6 +144,44 @@ class AudioControlsService : MediaSessionService() {
+@@ -51,8 +61,30 @@ class AudioControlsService : MediaSessionService() {
+   private var currentArtworkUrl: URL? = null
+   private var currentArtwork: Bitmap? = null
+   private var artworkLoadJob: Job? = null
+-  private val notificationId: Int
+-    get() = currentPlayable?.hashCode() ?: CHANNEL_ID.hashCode()
++  // Blednify patch: one id for the service's whole life. It used to follow the playable, so recreating the JS
++  // player swapped the foreground notification for a new one.
++  private val notificationId: Int = CHANNEL_ID.hashCode()
++
++  /**
++   * Blednify patch: JS detaches and re-attaches the lock screen around every playlist rebuild (a track failing,
++   * repeat-all wrapping, a retry after a dropped connection). Stopping the foreground service in between was
++   * permanent while the app is in the background: Android 12+ refuses startForeground() from the background, so
++   * the next track loaded with no foreground service (and, on Android 15+, no audio focus) and stopped. Leave the
++   * foreground only if nothing re-attaches shortly.
++   */
++  private val stopForegroundIfDetached = Runnable {
++    if (currentPlayable == null) {
++      lastNotification = null
++      stopForeground(STOP_FOREGROUND_REMOVE)
++    }
++  }
++  /** Last real notification, shown instead of a blank placeholder while no playable is attached. */
++  private var lastNotification: Notification? = null
++
++  private fun scheduleStopForeground() {
++    mainHandler.removeCallbacks(stopForegroundIfDetached)
++    mainHandler.postDelayed(stopForegroundIfDetached, STOP_FOREGROUND_GRACE_MS)
++  }
+ 
+   private var weakContext: WeakReference<AppContext>? = null
+   var appContext: AppContext?
+@@ -71,7 +103,9 @@ class AudioControlsService : MediaSessionService() {
+     val currentPlayer = playable?.player
+     val context = appContext
+     if (playable == null || currentPlayer == null || context == null) {
+-      stopForeground(STOP_FOREGROUND_REMOVE)
++      // Blednify patch: a new JS player binds (and starts the service) before it attaches; don't drop out of the
++      // foreground in that gap.
++      scheduleStopForeground()
+       return super.onStartCommand(intent, flags, startId)
+     }
+ 
+@@ -102,7 +136,7 @@ class AudioControlsService : MediaSessionService() {
+   }
+ 
+   private fun ensureForegroundNotification() {
+-    val notification = buildNotification() ?: buildPlaceholderNotification()
++    val notification = buildNotification() ?: lastNotification ?: buildPlaceholderNotification()
+     try {
+       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+         startForeground(
+@@ -134,6 +168,44 @@ class AudioControlsService : MediaSessionService() {
      super.onCreate()
      audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
      createNotificationChannelIfNeeded()
@@ -230,7 +305,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..117fc394cc4085f038cef8b9d9ad0ef5
    }
  
    private fun shouldPlayInSilentMode(): Boolean {
-@@ -176,6 +224,7 @@ class AudioControlsService : MediaSessionService() {
+@@ -176,6 +248,7 @@ class AudioControlsService : MediaSessionService() {
    }
  
    private fun buildNotification(): Notification? {
@@ -238,7 +313,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..117fc394cc4085f038cef8b9d9ad0ef5
      val session = mediaSession ?: return null
  
      val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-@@ -291,15 +340,13 @@ class AudioControlsService : MediaSessionService() {
+@@ -291,15 +364,13 @@ class AudioControlsService : MediaSessionService() {
  
      val playable = currentPlayable
  
@@ -260,7 +335,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..117fc394cc4085f038cef8b9d9ad0ef5
      } else if (currentOptions?.showSeekBackward == true) {
        val backwardSeconds = seekIntervalMs(currentOptions?.seekBackwardIntervalSeconds) / 1000.0
        mediaButtons.add(
-@@ -334,14 +381,7 @@ class AudioControlsService : MediaSessionService() {
+@@ -334,14 +405,7 @@ class AudioControlsService : MediaSessionService() {
      )
  
      if (currentOptions?.showNextTrack == true && playable?.supportsNextTrack == true) {
@@ -276,7 +351,28 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..117fc394cc4085f038cef8b9d9ad0ef5
      } else if (currentOptions?.showSeekForward == true) {
        val forwardSeconds = seekIntervalMs(currentOptions?.seekForwardIntervalSeconds) / 1000.0
        mediaButtons.add(
-@@ -446,29 +486,9 @@ class AudioControlsService : MediaSessionService() {
+@@ -373,6 +437,7 @@ class AudioControlsService : MediaSessionService() {
+   private fun postOrStartForegroundNotificationNow(startInForeground: Boolean) {
+     val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+     val notification = buildNotification() ?: return
++    lastNotification = notification
+ 
+     if (startInForeground) {
+       try {
+@@ -436,7 +501,11 @@ class AudioControlsService : MediaSessionService() {
+   ) {
+     removePlayerListener()
+     currentPlayable?.isActiveForLockScreen = false
+-    hideNotification()
++    if (playable != null) {
++      mainHandler.removeCallbacks(stopForegroundIfDetached)
++    } else {
++      hideNotification()
++    }
+ 
+     currentPlayable = playable
+     currentMetadata = metadata
+@@ -446,29 +515,9 @@ class AudioControlsService : MediaSessionService() {
      playable?.isActiveForLockScreen = true
  
      if (playable != null) {
@@ -308,7 +404,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..117fc394cc4085f038cef8b9d9ad0ef5
  
          updateSessionCustomLayout(playable.player.isPlaying)
  
-@@ -498,7 +518,7 @@ class AudioControlsService : MediaSessionService() {
+@@ -498,17 +547,17 @@ class AudioControlsService : MediaSessionService() {
      playable?.isActiveForLockScreen = false
      removePlayerListener()
      currentMetadata = null
@@ -317,8 +413,10 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..117fc394cc4085f038cef8b9d9ad0ef5
      mediaSession = null
      sessionMetadataPlayer = null
      clearArtwork()
-@@ -507,8 +527,8 @@ class AudioControlsService : MediaSessionService() {
-     stopForeground(STOP_FOREGROUND_REMOVE)
+     playable?.assignBasicMediaSession()
+     currentPlayable = null
+-    stopForeground(STOP_FOREGROUND_REMOVE)
++    scheduleStopForeground()
    }
  
 -  override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -328,7 +426,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..117fc394cc4085f038cef8b9d9ad0ef5
    }
  
    override fun onBind(intent: Intent?): IBinder {
-@@ -530,24 +550,9 @@ class AudioControlsService : MediaSessionService() {
+@@ -530,24 +579,9 @@ class AudioControlsService : MediaSessionService() {
        currentOptions = options
        updateArtwork(metadata, postUpdate = false)
  
@@ -355,10 +453,11 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..117fc394cc4085f038cef8b9d9ad0ef5
  
          updateSessionCustomLayout(playable.player.isPlaying)
          postOrStartForegroundNotification(startInForeground = false)
-@@ -644,12 +649,13 @@ class AudioControlsService : MediaSessionService() {
+@@ -644,12 +678,14 @@ class AudioControlsService : MediaSessionService() {
    }
  
    override fun onDestroy() {
++    mainHandler.removeCallbacks(stopForegroundIfDetached)
 +    AutoLibrary.attachSession(null)
 +    librarySession.release()
      super.onDestroy()
@@ -370,6 +469,15 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..117fc394cc4085f038cef8b9d9ad0ef5
      mediaSession = null
      sessionMetadataPlayer = null
      currentPlayable = null
+@@ -685,6 +721,8 @@ class AudioControlsService : MediaSessionService() {
+ 
+   companion object {
+     private const val CHANNEL_ID = "expo_audio_channel"
++    /** How long the service stays in the foreground with nothing attached (see stopForegroundIfDetached). */
++    private const val STOP_FOREGROUND_GRACE_MS = 5_000L
+     private const val ACTION_PLAY = "expo.modules.audio.action.PLAY"
+     private const val ACTION_PAUSE = "expo.modules.audio.action.PAUSE"
+     private const val ACTION_TOGGLE = "expo.modules.audio.action.TOGGLE"
 diff --git a/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt b/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt
 index ee83be1fa02e01f15d9040e6f5fedb3c7e1ac34a..5f2ad7195d0d496e12be57da7fd86c31c58e37a6 100644
 --- a/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt

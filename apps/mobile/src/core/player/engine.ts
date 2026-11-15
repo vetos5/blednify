@@ -50,6 +50,12 @@ const NETWORK_RETRY_MS = [2_000, 4_000, 8_000, 15_000, 30_000];
 const NETWORK_GIVE_UP_MS = 10 * 60_000;
 /** Media3 PlaybackException codes for a connection that failed or timed out (not 4xx/5xx or bad files). */
 const NETWORK_ERROR_CODES = new Set([2000, 2001, 2002]);
+/**
+ * HTTP statuses that say "try again" rather than "this track is broken": a proxy or tunnel that lost the server
+ * (Cloudflare answers 502/530 while its tunnel reconnects), an overloaded server, a timeout.
+ */
+const isTransientHttpStatus = (status: number) =>
+  status === 408 || status === 429 || status === 502 || status === 503 || status === 504 || (status >= 520 && status <= 530);
 /** How long status events reporting the pre-seek position are ignored while a seek settles. */
 const SEEK_SETTLE_MS = 6_000;
 const SEEK_TOLERANCE_MS = 1_500;
@@ -483,7 +489,8 @@ function onStatus(s: NativeStatus) {
 
   if (s.error) {
     const e = s.error;
-    onPlaybackError(typeof e === 'string' ? e : errorMessage(e), s.network === true || isNetworkError(e));
+    const network = s.network === true || isNetworkError(e);
+    onPlaybackError(network ? "Can't reach the server" : typeof e === 'string' ? e : errorMessage(e), network);
     return;
   }
   if (s.didJustFinish) {
@@ -559,9 +566,11 @@ function onNativeFinished() {
   load(0, false);
 }
 
+/** Android errors carry `{ code, httpStatus }` (see the expo-audio patch). */
 function isNetworkError(e: unknown): boolean {
-  const code = e && typeof e === 'object' && 'code' in e ? Number(e.code) : NaN;
-  return NETWORK_ERROR_CODES.has(code);
+  if (!e || typeof e !== 'object') return false;
+  const { code, httpStatus } = e as { code?: unknown; httpStatus?: unknown };
+  return NETWORK_ERROR_CODES.has(Number(code)) || (typeof httpStatus === 'number' && isTransientHttpStatus(httpStatus));
 }
 
 // --- Connection loss -------------------------------------------------------------------------
