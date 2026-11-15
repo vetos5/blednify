@@ -45,7 +45,9 @@ let seq = 0;
 /** True when `uri` can't be fetched right now (no connection, timeout, or a 5xx/408/429 "try again" status). */
 async function isServerUnavailable(uri: string): Promise<boolean> {
   try {
-    const res = await fetch(uri, { headers: { Range: 'bytes=0-0' }, credentials: 'include', signal: AbortSignal.timeout(8_000) });
+    // AbortSignal.timeout is missing before iOS 16; a hung probe then just resolves later.
+    const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(8_000) : undefined;
+    const res = await fetch(uri, { headers: { Range: 'bytes=0-0' }, credentials: 'include', signal });
     void res.body?.cancel().catch(() => undefined);
     const s = res.status;
     return s === 408 || s === 429 || s === 502 || s === 503 || s === 504 || (s >= 520 && s <= 530);
@@ -69,6 +71,10 @@ class WebPlaylist {
   private lastPositionSync = 0;
   private dead = false;
   private lockActive = false;
+  /** Seek requested before the element knew the duration; applied on `loadedmetadata`. */
+  private startAt: number | null = null;
+  /** URI already reloaded once after an error the server probe could not explain (see `onError`). */
+  private reloadedUri = '';
   private readonly el = audioElement();
   private readonly off: (() => void)[] = [];
 
@@ -77,8 +83,20 @@ class WebPlaylist {
       this.el.addEventListener(type, fn);
       this.off.push(() => this.el.removeEventListener(type, fn));
     };
-    on('loadedmetadata', () => this.emit());
+    on('loadedmetadata', () => {
+      if (this.startAt !== null) {
+        const t = this.startAt;
+        this.startAt = null;
+        try {
+          this.el.currentTime = t;
+        } catch {
+          // Not seekable; play from the start.
+        }
+      }
+      this.emit();
+    });
     on('loadeddata', () => {
+      this.reloadedUri = '';
       this.isLoaded = true;
       this.buffering = false;
       this.emit();
@@ -169,12 +187,22 @@ class WebPlaylist {
     this.scheduleAttach();
   }
 
+  /**
+   * Before the element has metadata the position is remembered and applied on `loadedmetadata`, so the engine
+   * can seek and call `play()` in the same tap: iOS only honours `play()` inside the user gesture.
+   */
   async seekTo(seconds: number): Promise<void> {
     if (this.loaded !== this.index) this.attachCurrent();
+    const t = Math.max(0, seconds);
+    if (this.el.readyState < HTMLMediaElement.HAVE_METADATA) {
+      this.startAt = t;
+      return;
+    }
+    this.startAt = null;
     try {
-      this.el.currentTime = Math.max(0, seconds);
+      this.el.currentTime = t;
     } catch {
-      // Not seekable yet; the engine re-seeks once loaded.
+      // Not seekable; keep playing from where it is.
     }
   }
 
@@ -282,6 +310,7 @@ class WebPlaylist {
     this.loadedUri = src.uri;
     this.isLoaded = false;
     this.buffering = this.wantPlay;
+    this.startAt = null;
     this.el.loop = this.loopMode === 'single';
     this.el.src = src.uri;
     this.el.load();
@@ -289,6 +318,7 @@ class WebPlaylist {
 
   private detach() {
     this.loaded = -1;
+    this.startAt = null;
     this.loadedUri = '';
     this.isLoaded = false;
     this.buffering = false;
@@ -303,8 +333,10 @@ class WebPlaylist {
     const p = this.el.play();
     p?.catch((e: unknown) => {
       const name = (e as { name?: string })?.name;
-      if (name === 'AbortError') return; // superseded by a newer load
-      // NotAllowedError: the browser wants a tap first. Report paused, not an error.
+      // AbortError: superseded by a newer load. NotSupportedError: the source failed; the `error` event reports it
+      // and may retry, which needs the intent to play kept.
+      if (name !== 'NotAllowedError') return;
+      // The browser wants a tap first. Report paused, not an error.
       this.wantPlay = false;
       this.emit();
     });
@@ -358,8 +390,22 @@ class WebPlaylist {
     // server hiccup is retried instead of skipping the song.
     const uri = this.loadedUri;
     const slot = this.loaded;
+    const position = this.startAt ?? this.el.currentTime;
     void isServerUnavailable(uri).then((network) => {
-      if (!this.dead && this.loadedUri === uri && this.loaded === slot) this.emit({ error, network });
+      if (this.dead || this.loadedUri !== uri || this.loaded !== slot) return;
+      // The server answers fine now, but it may have been down when the element asked (a short outage that ends
+      // between the two requests). Load once more before calling the file broken, so a recovered server does not
+      // skip the song.
+      if (!network && this.reloadedUri !== uri) {
+        this.reloadedUri = uri;
+        this.startAt = position > 0 ? position : null;
+        this.buffering = this.wantPlay;
+        this.el.load();
+        if (this.wantPlay) this.startElement();
+        this.emit();
+        return;
+      }
+      this.emit({ error, network });
     });
   }
 
@@ -371,7 +417,7 @@ class WebPlaylist {
       id: this.id,
       currentIndex: this.index,
       trackCount: this.sources.length,
-      currentTime: attached ? el.currentTime : 0,
+      currentTime: attached ? (this.startAt ?? el.currentTime) : 0,
       duration,
       playing: attached && !el.paused && !el.ended,
       isBuffering: this.buffering,

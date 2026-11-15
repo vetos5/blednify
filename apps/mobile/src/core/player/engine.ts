@@ -409,6 +409,11 @@ function load(idx: number, play: boolean, positionMs = 0) {
 
   pendingSeekMs = positionMs > 0 ? positionMs : null;
   if (pendingSeekMs !== null) guardSeek(pendingSeekMs);
+  if (pendingSeekMs !== null && Platform.OS === 'web') {
+    // The web backend applies a seek once metadata arrives, so play() can run now, inside the user's tap.
+    void n.seekTo(pendingSeekMs / 1000);
+    pendingSeekMs = null;
+  }
   publishIndex({ isPlaying: play, isBuffering: play });
   if (play) {
     activateLockScreen(cur.track);
