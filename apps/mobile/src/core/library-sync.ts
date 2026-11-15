@@ -3,7 +3,9 @@ import { AppState } from 'react-native';
 import { create, useStore } from 'zustand';
 
 import { ApiError } from './api';
-import { getDb, writeTx } from './db';
+import type { SQLiteDatabase } from 'expo-sqlite';
+
+import { writeTx } from './db';
 import { loadLibIndexAgain } from './lib-index';
 import { invalidate, libKeys, onInvalidate } from './query-client';
 import { getServerBase, kv, settingsStore } from './settings';
@@ -64,8 +66,7 @@ function isDoc(x: unknown): x is LibraryDoc {
 // ---------------------------------------------------------------------------------------------
 // Device side
 
-async function readLocal(): Promise<LibraryDoc> {
-  const db = await getDb();
+async function readLocal(db: SQLiteDatabase): Promise<LibraryDoc> {
   const [lists, entries, likes, tombs] = await Promise.all([
     db.getAllAsync<{ id: string; name: string; created_at: string; updated_at: string; cover: string | null; import_id: string | null }>(
       'SELECT id, name, created_at, updated_at, cover, import_id FROM playlists',
@@ -99,11 +100,17 @@ async function readLocal(): Promise<LibraryDoc> {
   return doc;
 }
 
-/** Makes the device match `merged` where it differs from `local`. Returns whether anything changed. */
-async function applyLocal(merged: LibraryDoc, local: LibraryDoc): Promise<boolean> {
+/**
+ * Reads the device, merges it with `remoteDoc` and makes the device match the result, all inside one write
+ * transaction (writes are serialised), so an edit made while the server request was in flight is never
+ * overwritten by a merge computed from a stale read.
+ */
+async function mergeIntoLocal(remoteDoc: LibraryDoc | null): Promise<LibraryDoc> {
   const changedPlaylists: string[] = [];
   let likesChanged = false;
-  await writeTx(async (db) => {
+  const merged = await writeTx(async (db) => {
+    const local = await readLocal(db);
+    const merged = mergeDocs(local, remoteDoc);
     for (const [id, m] of Object.entries(merged.playlists)) {
       const l = local.playlists[id];
       if (l && JSON.stringify(l) === JSON.stringify(m)) continue;
@@ -139,6 +146,7 @@ async function applyLocal(merged: LibraryDoc, local: LibraryDoc): Promise<boolea
       if ('deleted' in m) await db.runAsync('INSERT INTO sync_tombstones (kind, id, at) VALUES (?, ?, ?)', 'like', key, m.at);
       else await db.runAsync('INSERT INTO likes (key, track, liked_at) VALUES (?, ?, ?)', key, m.track, m.at);
     }
+    return merged;
   });
   if (likesChanged) await loadLibIndexAgain();
   if (changedPlaylists.length || likesChanged) {
@@ -149,7 +157,7 @@ async function applyLocal(merged: LibraryDoc, local: LibraryDoc): Promise<boolea
       applying = false;
     }
   }
-  return changedPlaylists.length > 0 || likesChanged;
+  return merged;
 }
 
 function keyOf(track: string): string | null {
@@ -248,9 +256,7 @@ async function syncOnce(key: string): Promise<void> {
   for (let attempt = 0; attempt < 4; attempt++) {
     const remote = status === 404 || !json ? null : json;
     const remoteDoc = remote && isDoc(remote.data) ? remote.data : null;
-    const local = await readLocal();
-    const merged = mergeDocs(local, remoteDoc);
-    await applyLocal(merged, local);
+    const merged = await mergeIntoLocal(remoteDoc);
     if (sameDoc(merged, remoteDoc)) return;
     const put = await request<RemoteCopy>('PUT', key, { baseVersion: remote?.version ?? 0, data: merged });
     if (put.status !== 409) return;
