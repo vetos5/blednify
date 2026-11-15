@@ -416,12 +416,32 @@ export class Library {
 
   // ---------- artist identity / admin edits ----------
 
+  private aggregatesDirty = false;
+  private aggregatesAt = 0;
+
+  /** Tracks changed without a rebuild; `flushAggregates` (or any `rebuildAggregates`) will catch up. */
+  markAggregatesDirty(): void {
+    this.aggregatesDirty = true;
+  }
+
+  /**
+   * Rebuilds if tracks changed since the last rebuild and at least `minIntervalMs` passed since it. Returns
+   * whether it rebuilt. The result is the same full rebuild, just once per batch instead of once per song.
+   */
+  flushAggregates(minIntervalMs = 0): boolean {
+    if (!this.aggregatesDirty || Date.now() - this.aggregatesAt < minIntervalMs) return false;
+    this.rebuildAggregates();
+    return true;
+  }
+
   /**
    * Recomputes everything derived from the tracks' tags: effective title/artist/album (admin edits and artist
    * merges applied), track_artists (featured artists included), albums, artists, artist_albums, the old-id
    * lookups and the FTS indexes.
    */
   rebuildAggregates(): void {
+    this.aggregatesDirty = false;
+    this.aggregatesAt = Date.now();
     const sql = this.sql;
     sql.transaction(() => {
       type Row = Required<Pick<TrackRow, "id" | "path" | "title" | "artist" | "artist_id" | "album" | "album_id" | "album_artist" | "album_artist_id" | "edited" | "tag_title" | "tag_artist" | "tag_album" | "tag_album_artist">>;

@@ -43,6 +43,8 @@ if (import.meta.main) {
     // Let in-flight requests finish, but don't let a long-lived audio stream hold shutdown hostage.
     setTimeout(() => process.exit(0), 5000).unref();
     void server.stop().finally(() => {
+      ctx.importer.flush();
+      ctx.lib.flushAggregates();
       ctx.db.sql.close();
       process.exit(0);
     });

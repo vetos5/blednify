@@ -75,6 +75,10 @@ type Stored = ImportJob & { plan?: ResolvedItem[] };
 const IMPORT_DIR = "imports";
 const AUDIO_FORMAT = "bestaudio[ext=m4a][format_id!*=preview]/bestaudio[acodec=mp3][format_id!*=preview]/bestaudio[format_id!*=preview]";
 const COVER_MAX = 15 * 1024 * 1024;
+/** Progress saves of a running job are coalesced to at most one write per this many ms (plus a flush at every state change). */
+export const SAVE_INTERVAL_MS = 1000;
+/** While an import runs, albums/artists are rebuilt at most this often (and once more when the job ends). */
+export const AGGREGATE_INTERVAL_MS = 5000;
 
 export type ImporterDeps = { config: Config; db: Db; lib: Library; scanner: Scanner; claims: PathClaimer };
 
@@ -83,6 +87,8 @@ export class Importer {
   private readonly queue: string[] = [];
   private current: { id: string; ctrl: AbortController } | null = null;
   private ready: Promise<boolean> | null = null;
+  private readonly lastSaved = new Map<string, number>();
+  private readonly saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly coverDir: string;
   private readonly workRoot: string;
 
@@ -209,6 +215,8 @@ export class Importer {
     if (!job) return false;
     this.cancel(id);
     this.jobs.delete(id);
+    this.dropTimer(id);
+    this.lastSaved.delete(id);
     this.d.db.sql.query("DELETE FROM imports WHERE id = ?").run(id);
     await rm(join(this.coverDir, `${id}.jpg`), { force: true });
     return true;
@@ -226,13 +234,45 @@ export class Importer {
     return structuredClone(rest);
   }
 
+  /** Writes the job now (state changes, start, end), cancelling any coalesced write that was waiting. */
   private save(job: Stored): void {
+    this.dropTimer(job.id);
     // A removed job may still be unwinding (its cancel lands asynchronously); writing it now would bring it back.
     if (this.jobs.get(job.id) !== job) return;
     job.updatedAt = new Date().toISOString();
+    this.lastSaved.set(job.id, Date.now());
     this.d.db.sql
       .query("INSERT INTO imports (id, doc, created_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET doc = ?2")
       .run(job.id, JSON.stringify(job), job.createdAt);
+  }
+
+  /** Progress save: writes at most once per SAVE_INTERVAL_MS, the rest coalesce into one trailing write. */
+  private touch(job: Stored): void {
+    if (this.saveTimers.has(job.id)) return;
+    const wait = (this.lastSaved.get(job.id) ?? 0) + SAVE_INTERVAL_MS - Date.now();
+    if (wait <= 0) return this.save(job);
+    this.saveTimers.set(
+      job.id,
+      setTimeout(() => {
+        this.saveTimers.delete(job.id);
+        this.save(job);
+      }, wait),
+    );
+  }
+
+  private dropTimer(id: string): void {
+    const t = this.saveTimers.get(id);
+    if (t) clearTimeout(t);
+    this.saveTimers.delete(id);
+  }
+
+  /** Writes every job with a pending coalesced save (end of a run, shutdown, tests). Deleted jobs are skipped. */
+  flush(): void {
+    for (const id of [...this.saveTimers.keys()]) {
+      const job = this.jobs.get(id);
+      if (job) this.save(job);
+      else this.dropTimer(id);
+    }
   }
 
   private recount(job: Stored): void {
@@ -266,6 +306,8 @@ export class Importer {
           this.save(job);
         } finally {
           this.current = null;
+          this.flush();
+          this.d.lib.flushAggregates();
         }
       }
     } finally {
@@ -320,12 +362,12 @@ export class Importer {
         const item = job.items[i]!;
         if (item.state !== "pending") continue;
         item.state = "downloading";
-        this.save(job);
+        this.touch(job);
         try {
           const { track: fetched, reused } = await this.fetchItem(plan[i]!, job, signal, (title, artists) => {
             if (title) item.title = job.artist ? titleForArtist(title, job.artist) : title;
             if (artists.length) item.artist = job.artist ?? artists.join(", ");
-            this.save(job);
+            this.touch(job);
           });
           // A song imported before keeps its file: the admin's artist/album apply as a server-side edit.
           const track = reused ? this.applyOverrides(fetched, job) : fetched;
@@ -337,7 +379,7 @@ export class Importer {
           console.warn(`[import] ${item.artist} - ${item.title}: ${item.error}`);
         }
         this.recount(job);
-        this.save(job);
+        this.touch(job);
       }
     };
     await Promise.all(Array.from({ length: Math.min(this.d.config.imports.concurrency, plan.length) }, worker));
@@ -510,8 +552,9 @@ export class Importer {
       const name = sanitizeFileName(`${artist} - ${title}.${ext}`);
       const dest = this.d.claims.claim(IMPORT_DIR, name);
       final.push(dest);
-      const [track] = await this.d.scanner.indexUploads([{ tmp: out, final: dest }]);
+      const [track] = await this.d.scanner.indexUploads([{ tmp: out, final: dest }], { deferAggregates: true });
       if (!track) throw new Error("indexing failed");
+      this.d.lib.flushAggregates(AGGREGATE_INTERVAL_MS);
       this.remember([item.source, `youtube:${info.id}`, `${job.source ?? "x"}:${info.id}`].filter((s, i, a) => a.indexOf(s) === i), track.id);
       return { track, reused: false };
     } finally {

@@ -211,9 +211,10 @@ export class Scanner {
   /**
    * Indexes uploads. Each `tmp` is a dot-file (invisible to scans) that is validated strictly, then moved to
    * `final` (whose relative path defines the id). All-or-nothing: an invalid file throws `InvalidAudioError`
-   * before anything is placed or indexed.
+   * before anything is placed or indexed. With `deferAggregates` the albums/artists are rebuilt later by
+   * `Library.flushAggregates`, not here.
    */
-  async indexUploads(items: { tmp: string; final: string }[]): Promise<Track[]> {
+  async indexUploads(items: { tmp: string; final: string }[], opts: { deferAggregates?: boolean } = {}): Promise<Track[]> {
     const addedAt = new Date().toISOString();
     const rows: TrackRow[] = [];
     for (const { tmp, final } of items) {
@@ -237,7 +238,9 @@ export class Scanner {
     }
     await Promise.all(rows.map((r) => this.art.invalidate(r.id)));
     this.lib.upsertTracks(rows);
-    this.lib.rebuildAggregates();
+    // A caller adding many songs one by one (an import job) defers the rebuild and flushes it in batches.
+    if (opts.deferAggregates) this.lib.markAggregatesDirty();
+    else this.lib.rebuildAggregates();
     return rows.map(toTrack);
   }
 

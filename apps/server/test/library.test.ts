@@ -167,3 +167,15 @@ describe("library backup with a listen token", () => {
     expect((await call(guarded, "GET", headers)).status).toBe(404);
   });
 });
+
+describe("library backup concurrency", () => {
+  test("two pushes from the same base: one wins, the other gets the winner copy", async () => {
+    const key = "q".repeat(30);
+    const [a, b] = await Promise.all([put(0, { who: "a" }, key), put(0, { who: "b" }, key)]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    const body = (await (a.status === 409 ? a : b).json()) as { version: number; data: unknown };
+    const stored = (await (await call(srv, "GET", withKey(key))).json()) as { data: unknown };
+    expect(body.version).toBe(1);
+    expect(body.data).toEqual(stored.data);
+  });
+});
