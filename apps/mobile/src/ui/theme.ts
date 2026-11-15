@@ -61,7 +61,7 @@ export const THEME_PRESETS: readonly ThemePreset[] = [
     id: 'blednify',
     name: 'Blednify',
     bg: '#0A0A0C',
-    accent: '#E5383B',
+    accent: '#DC3135',
     overrides: { surface: '#141418', surface2: '#1C1C22', surface3: '#26262E', accentDeep: '#7A1517' },
   },
   { id: 'starry', name: 'Starry night', bg: '#060A1A', accent: '#F5C451', backdrop: 'stars' },
@@ -82,17 +82,17 @@ export const THEME_PRESETS: readonly ThemePreset[] = [
       accentDeep: '#2B3F9E',
     },
   },
-  { id: 'oled', name: 'OLED black', bg: '#000000', accent: '#E5383B' },
+  { id: 'oled', name: 'OLED black', bg: '#000000', accent: '#DC3135' },
   { id: 'aurora', name: 'Aurora', bg: '#05110E', accent: '#2EE6A6', backdrop: 'glow' },
   { id: 'ocean', name: 'Deep ocean', bg: '#06111C', accent: '#38BDF8', backdrop: 'glow' },
   { id: 'amethyst', name: 'Amethyst', bg: '#0D0A16', accent: '#A78BFA', backdrop: 'glow' },
   { id: 'ember', name: 'Ember', bg: '#120A06', accent: '#FB923C' },
-  { id: 'light', name: 'Daylight', bg: '#F5F5F7', accent: '#E5383B' },
+  { id: 'light', name: 'Daylight', bg: '#F5F5F7', accent: '#DC3135' },
 ];
 
 /** Accent swatches offered in Appearance (any hex works). */
 export const ACCENT_SWATCHES = [
-  '#E5383B',
+  '#DC3135',
   '#FB923C',
   '#F5C451',
   '#A3E635',
@@ -213,7 +213,9 @@ export function presetById(id: string): ThemePreset {
 
 export function paletteFor(pref: ThemePref): Palette {
   const preset = presetById(pref.preset);
-  const accent = (pref.accent && normalizeHex(pref.accent)) || preset.accent;
+  // #E5383B was the brand red before 2026-11-16; white on it was 4.2:1, so saved picks map to the darker red.
+  const picked = pref.accent && normalizeHex(pref.accent);
+  const accent = (picked && picked.toUpperCase() === '#E5383B' ? '#DC3135' : picked) || preset.accent;
   const bg = (pref.background && normalizeHex(pref.background)) || preset.bg;
   const base = derivePalette(bg, accent, preset.backdrop ?? 'none');
   // Hand-tuned values only apply while the preset's own colors are in use.
@@ -321,7 +323,7 @@ export const TRACK_ROW_HEIGHT = 64;
 
 /** Deep, desaturated tile gradients for artwork fallbacks — brand-red first. */
 const FALLBACK_GRADIENTS: readonly (readonly [string, string])[] = [
-  ['#E5383B', '#5C0F12'],
+  ['#DC3135', '#5C0F12'],
   ['#8E2DE2', '#2A0E4A'],
   ['#2B5876', '#101C2B'],
   ['#C06C2B', '#3B1A08'],

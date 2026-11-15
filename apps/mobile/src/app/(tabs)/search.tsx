@@ -307,7 +307,7 @@ function RecentHistoryRow({
 
 type BrowseItem = { label: string; icon: IconName; colors: readonly [string, string]; filter?: LibraryFilter; action?: () => void };
 const BROWSE_ALL: BrowseItem[] = [
-  { label: 'Liked songs', icon: 'heart', colors: ['#E5383B', '#6A1214'], filter: 'liked' },
+  { label: 'Liked songs', icon: 'heart', colors: ['#DC3135', '#6A1214'], filter: 'liked' },
   { label: 'Downloaded', icon: 'arrow-down-circle', colors: ['#2B5876', '#101C2B'], filter: 'downloaded' },
   { label: 'On this device', icon: 'phone-portrait', colors: ['#1F8A70', '#0B2B24'], filter: 'device' },
   { label: 'Playlists', icon: 'list', colors: ['#8E2DE2', '#2A0E4A'], filter: 'playlists' },
