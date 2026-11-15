@@ -1,5 +1,6 @@
 
-import { deleteLocalTrack, importFromDevice, type AppTrack } from '@/core';
+import { deleteLocalTrack, importFromDevice, insertIntoPlaylist, player, removeFromPlaylist, type AppTrack } from '@/core';
+import { playerStore } from '@/core/player/store';
 
 import { haptics } from './haptics';
 import { confirm } from './components/ConfirmSheet';
@@ -21,6 +22,45 @@ export async function attempt<T>(task: Promise<T>, success?: string): Promise<T 
     showToast(errorMessage(e), 'error');
     return undefined;
   }
+}
+
+/** Removes a track from a playlist and offers an Undo toast that puts it back in the same place. */
+export async function removeFromPlaylistWithUndo(playlistId: string, index: number, track: AppTrack) {
+  try {
+    await removeFromPlaylist(playlistId, index);
+  } catch (e) {
+    haptics.warn();
+    showToast(errorMessage(e), 'error');
+    return;
+  }
+  showToast('Removed from playlist', 'success', {
+    label: 'Undo',
+    onPress: () => void attempt(insertIntoPlaylist(playlistId, index, track)),
+  });
+}
+
+/** Removes an upcoming song from the queue and offers an Undo toast that puts it back in the same place. */
+export function removeFromQueueWithUndo(abs: number) {
+  const { queue, index } = playerStore.getState();
+  const track = queue[abs];
+  if (!track) return;
+  // Remember where the song sat relative to the playing one: the queue may have moved on by the time Undo is tapped.
+  const offset = abs - index;
+  player.removeFromQueue(abs);
+  if (offset <= 0) {
+    showToast('Removed from queue', 'success');
+    return;
+  }
+  showToast('Removed from queue', 'success', {
+    label: 'Undo',
+    onPress: () => {
+      const now = playerStore.getState();
+      if (!now.queue.length) return player.playTracks([track], 0);
+      player.playNext([track]);
+      const to = Math.min(now.index + offset, now.queue.length);
+      if (to > now.index + 1) player.moveInQueue(now.index + 1, to);
+    },
+  });
 }
 
 let importing = false;

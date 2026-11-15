@@ -468,6 +468,24 @@ export async function removeFromPlaylist(id: string, index: number): Promise<voi
   invalidatePlaylist(id);
 }
 
+/** Inserts a track at `index` (clamped to the end), shifting later tracks down. Used to undo a removal. */
+export async function insertIntoPlaylist(id: string, index: number, track: AppTrack): Promise<void> {
+  await writeTx(async (db) => {
+    const row = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM playlist_tracks WHERE playlist_id = ?', id);
+    const at = Math.max(0, Math.min(index, row?.n ?? 0));
+    await db.runAsync('UPDATE playlist_tracks SET position = position + 1 WHERE playlist_id = ? AND position >= ?', id, at);
+    await db.runAsync(
+      'INSERT INTO playlist_tracks (playlist_id, position, key, track) VALUES (?, ?, ?, ?)',
+      id,
+      at,
+      track.key,
+      serializeTrack(track),
+    );
+    await touch(db, id);
+  });
+  invalidatePlaylist(id);
+}
+
 export async function reorderPlaylist(id: string, from: number, to: number): Promise<void> {
   if (from === to) return;
   await writeTx(async (db) => {

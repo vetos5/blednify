@@ -49,6 +49,7 @@ export {
   addToPlaylist,
   createPlaylist,
   deletePlaylist,
+  insertIntoPlaylist,
   removeFromPlaylist,
   renamePlaylist,
   reorderPlaylist,

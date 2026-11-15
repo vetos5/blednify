@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { player, usePlayer, type AppTrack } from '@/core';
 
+import { removeFromQueueWithUndo } from '../actions';
 import { Artwork } from '../components/Artwork';
 import { EmptyState } from '../components/EmptyState';
 import { Equalizer } from '../components/Equalizer';
@@ -213,7 +214,7 @@ function QueueRow({ track, abs, dragging, offset, handle }: { track: AppTrack; a
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Remove from queue"
-                  onPress={() => player.removeFromQueue(abs)}
+                  onPress={() => removeFromQueueWithUndo(abs)}
                   style={({ hovered: h }) => [styles.remove, h && styles.hover]}>
                   <Icon name="close" size={16} color={colors.textSecondary} />
                 </Pressable>
