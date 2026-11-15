@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown, FadeInUp, FadeOutDown, FadeOutUp } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -39,7 +39,7 @@ export function ToastHost() {
             // Native screen readers get the message from showToast(); the live region covers the web app.
             accessibilityLiveRegion={Platform.OS === 'web' ? 'polite' : 'none'}
             accessibilityRole="alert"
-            onTouchEnd={() => toast.kind !== 'progress' && dismissToast(toast.id)}>
+            onTouchEnd={() => toast.kind !== 'progress' && !toast.action && dismissToast(toast.id)}>
             {toast.kind === 'progress' ? (
               <ActivityIndicator size="small" color={colors.accent} />
             ) : (
@@ -48,6 +48,22 @@ export function ToastHost() {
             <Text variant="bodyStrong" style={styles.message} numberOfLines={2}>
               {toast.message}
             </Text>
+            {toast.action ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={toast.action.label}
+                hitSlop={8}
+                style={styles.action}
+                onPress={() => {
+                  const { onPress } = toast.action!;
+                  dismissToast(toast.id);
+                  onPress();
+                }}>
+                <Text variant="bodyStrong" color={colors.accent}>
+                  {toast.action.label}
+                </Text>
+              </Pressable>
+            ) : null}
           </Animated.View>
         ) : null}
       </View>
@@ -84,4 +100,5 @@ const useStyles = makeStyles((colors) => ({
     elevation: 12,
   },
   message: { flexShrink: 1 },
+  action: { paddingHorizontal: space.xs, paddingVertical: space.xs, minHeight: 32, justifyContent: 'center' },
 }));

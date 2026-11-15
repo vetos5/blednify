@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 
 import { contextMenu, Pressable } from '../desktop/web';
 import { useIsWide } from '../layout';
@@ -18,6 +18,7 @@ function ListRowImpl({
   trailing,
   chevron,
   onContextMenu,
+  nestedActions,
 }: {
   /** Wide layout: right-click menu at the cursor. */
   onContextMenu?: (anchor: SheetAnchor) => void;
@@ -28,13 +29,16 @@ function ListRowImpl({
   onLongPress?: () => void;
   trailing?: ReactNode;
   chevron?: boolean;
+  /** `trailing` holds its own buttons. Web screen readers can't reach a button nested in a button, so the row becomes a group. */
+  nestedActions?: boolean;
 }) {
   const styles = useStyles();
   const colors = useColors();
   const wide = useIsWide();
   return (
     <Pressable
-      accessibilityRole="button"
+      accessibilityRole={nestedActions && Platform.OS === 'web' ? 'group' : 'button'}
+      accessibilityLabel={nestedActions && Platform.OS === 'web' ? (subtitle ? `${title}, ${subtitle}` : title) : undefined}
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={320}

@@ -6,7 +6,6 @@ import {
   downloadTracks,
   player,
   removeDownload,
-  removeFromPlaylist,
   toggleLike,
   uploadLocalTracks,
   useDownloadState,
@@ -17,7 +16,7 @@ import {
   fileStorageSupported,
 } from '@/core';
 
-import { attempt, confirmDeleteLocal } from '../actions';
+import { attempt, confirmDeleteLocal, removeFromPlaylistWithUndo } from '../actions';
 import { nav } from '../nav';
 import { showSheet, showToast, type SheetAnchor } from '../overlay';
 import { openEditTrack } from './ArtistAdmin';
@@ -108,7 +107,7 @@ function TrackActions({ track, context }: { track: AppTrack; context: TrackActio
         <SheetAction
           icon="remove-circle-outline"
           label="Remove from this playlist"
-          onPress={() => void attempt(removeFromPlaylist(playlist.id, playlist.index), 'Removed from playlist')}
+          onPress={() => void removeFromPlaylistWithUndo(playlist.id, playlist.index, track)}
         />
       ) : null}
       {!context.hideAlbum && track.album ? (

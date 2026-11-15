@@ -2,7 +2,7 @@ import { FlashList } from '@shopify/flash-list';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { cancelDownload, downloadTracks, formatBytes, useDownloads, useSettings, type AppTrack, type DownloadStatus } from '@/core';
+import { cancelDownload, downloadTracks, formatBytes, useDownloadProgress, useDownloads, useSettings, type AppTrack, type DownloadStatus } from '@/core';
 import { Backdrop } from '@/ui/components/Backdrop';
 import { Artwork } from '@/ui/components/Artwork';
 import { EmptyState } from '@/ui/components/EmptyState';
@@ -15,9 +15,9 @@ import { plural } from '@/ui/format';
 import { nav } from '@/ui/nav';
 import { makeStyles, radius, space, TRACK_ROW_HEIGHT, useColors } from '@/ui/theme';
 
-type Active = { track: AppTrack; status: DownloadStatus; progress: number };
+type Active = { track: AppTrack; status: DownloadStatus };
 
-function statusLabel({ status, progress }: Active) {
+function statusLabel(status: DownloadStatus, progress: number) {
   if (status === 'queued') return 'Waiting…';
   if (status === 'error') return 'Failed — tap retry';
   return `Downloading · ${Math.round(progress * 100)}%`;
@@ -87,7 +87,8 @@ export default function DownloadsScreen() {
 function ActiveRow({ item }: { item: Active }) {
   const styles = useStyles();
   const colors = useColors();
-  const { track, status, progress } = item;
+  const { track, status } = item;
+  const progress = useDownloadProgress(track.key);
   const failed = status === 'error';
   return (
     <View style={styles.row}>
@@ -97,7 +98,7 @@ function ActiveRow({ item }: { item: Active }) {
           {track.title}
         </Text>
         <Text variant="caption" numberOfLines={1} color={failed ? colors.danger : colors.textSecondary}>
-          {statusLabel(item)}
+          {statusLabel(status, progress)}
         </Text>
         <View style={styles.bar}>
           <View style={[styles.barFill, { width: `${Math.round((status === 'downloading' ? progress : 0) * 100)}%` }]} />

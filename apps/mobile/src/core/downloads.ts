@@ -1,11 +1,12 @@
 import { File } from 'expo-file-system';
 import { addNetworkStateListener, getNetworkStateAsync, NetworkStateType, type NetworkState } from 'expo-network';
 import { useMemo } from 'react';
+import { AppState } from 'react-native';
 import { create, useStore } from 'zustand';
 
 import { trackArtworkUrl, trackStreamUrl } from './api';
 import { getDb, writeTx } from './db';
-import { libIndex, setDownload } from './lib-index';
+import { libIndex, setDownload, setDownloads, type DownloadEntry } from './lib-index';
 import { DIRS, deleteQuietly, ensureDir, fileAt } from './paths';
 import { authHeadersFor } from './auth';
 import { refreshQueueTracks } from './player/engine';
@@ -18,11 +19,24 @@ import { errorMessage, extForMime } from './util';
 const CONCURRENCY = 2;
 const PROGRESS_THROTTLE_MS = 250;
 const QUEUE_KEY = 'downloads.queue.v1';
+const PERSIST_DEBOUNCE_MS = 1000;
+const COMPLETION_BATCH_MS = 400;
 
-type Item = { track: AppTrack; status: Exclude<DownloadStatus, 'none' | 'done'>; progress: number; error?: string };
+type Item = { track: AppTrack; status: Exclude<DownloadStatus, 'none' | 'done'>; error?: string };
 type DlState = { items: Record<string, Item>; order: string[] };
 
 const dlStore = create<DlState>(() => ({ items: {}, order: [] }));
+/** Live progress (0..1) of running transfers only, keyed by track. Ticks never touch `dlStore`. */
+const progressStore = create<{ p: Record<string, number> }>(() => ({ p: {} }));
+
+function setProgress(key: string, value: number | null) {
+  const { p } = progressStore.getState();
+  if (value === null) {
+    if (!(key in p)) return;
+    const { [key]: _gone, ...rest } = p;
+    progressStore.setState({ p: rest });
+  } else if (p[key] !== value) progressStore.setState({ p: { ...p, [key]: value } });
+}
 
 const controllers = new Map<string, { ctrl: AbortController; requeue: boolean }>();
 /** In-flight `run` per key, so `removeDownload` can wait for a cancelled run to finish cleaning up. */
@@ -38,18 +52,65 @@ function patch(key: string, p: Partial<Item>) {
   dlStore.setState({ items: { ...items, [key]: { ...it, ...p } } });
 }
 
-function drop(key: string) {
+/** Removes finished/cancelled keys from the queue in one store update. */
+function dropMany(keys: string[]) {
   const { items, order } = dlStore.getState();
-  if (!items[key]) return;
-  const { [key]: _removed, ...rest } = items;
-  dlStore.setState({ items: rest, order: order.filter((k) => k !== key) });
+  const gone = new Set(keys.filter((k) => items[k]));
+  for (const k of keys) setProgress(k, null);
+  if (!gone.size) return;
+  const rest = { ...items };
+  for (const k of gone) delete rest[k];
+  dlStore.setState({ items: rest, order: order.filter((k) => !gone.has(k)) });
   persistQueue();
 }
 
+function drop(key: string) {
+  dropMany([key]);
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Debounced: serialising the whole queue on every change is costly with hundreds of tracks. */
 function persistQueue() {
+  persistTimer ??= setTimeout(flushQueue, PERSIST_DEBOUNCE_MS);
+}
+
+function flushQueue() {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = null;
   const { items, order } = dlStore.getState();
   const pending = order.filter((k) => items[k].status !== 'error').map((k) => serializeTrack(items[k].track));
   kv.set(QUEUE_KEY, JSON.stringify(pending));
+}
+
+AppState.addEventListener('change', (state) => {
+  if (state !== 'active') {
+    flushCompletions();
+    if (persistTimer) flushQueue();
+  }
+});
+
+// --- Completion batching ---------------------------------------------------------------------
+
+const completed = new Map<string, DownloadEntry>();
+let completionTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Finished downloads are applied together, so a burst re-renders lists once, not once per track. */
+function completeDownload(key: string, entry: DownloadEntry) {
+  completed.set(key, entry);
+  completionTimer ??= setTimeout(flushCompletions, COMPLETION_BATCH_MS);
+}
+
+function flushCompletions() {
+  if (completionTimer) clearTimeout(completionTimer);
+  completionTimer = null;
+  if (!completed.size) return;
+  const batch = [...completed];
+  completed.clear();
+  setDownloads(batch);
+  dropMany(batch.map(([k]) => k));
+  refreshQueueTracks();
+  invalidate(libKeys.all);
 }
 
 // --- Network policy --------------------------------------------------------------------------
@@ -131,7 +192,8 @@ async function run(key: string): Promise<void> {
   const ctrl = new AbortController();
   const handle = { ctrl, requeue: false };
   controllers.set(key, handle);
-  patch(key, { status: 'downloading', progress: 0, error: undefined });
+  patch(key, { status: 'downloading', error: undefined });
+  setProgress(key, 0);
 
   const dir = ensureDir(DIRS.music);
   const fileRel = `${DIRS.music}/${track.id}.${extForMime(track.mimeType)}`;
@@ -155,7 +217,7 @@ async function run(key: string): Promise<void> {
         if (now - lastTick < PROGRESS_THROTTLE_MS) return;
         lastTick = now;
         const total = totalBytes > 0 ? totalBytes : track.sizeBytes;
-        if (total > 0) patch(key, { progress: Math.min(0.99, bytesWritten / total) });
+        if (total > 0) setProgress(key, Math.min(0.99, bytesWritten / total));
       },
     });
     bail();
@@ -200,10 +262,7 @@ async function run(key: string): Promise<void> {
       await writeTx((db) => db.runAsync('DELETE FROM downloads WHERE key = ?', key));
       bail();
     }
-    setDownload(key, { file: fileRel, art, size });
-    drop(key);
-    refreshQueueTracks();
-    invalidate(libKeys.all);
+    completeDownload(key, { file: fileRel, art, size });
   } catch (e) {
     deleteQuietly(`${DIRS.music}/${track.id}.part`);
     if (cancelled()) {
@@ -212,10 +271,14 @@ async function run(key: string): Promise<void> {
       deleteQuietly(artRel);
     }
     if (ctrl.signal.aborted) {
-      if (handle.requeue) patch(key, { status: 'queued', progress: 0 });
+      if (handle.requeue) {
+        patch(key, { status: 'queued' });
+        setProgress(key, null);
+      }
       // Cancelled: the item was already removed by `cancelDownload`.
     } else {
       patch(key, { status: 'error', error: errorMessage(e) });
+      setProgress(key, null);
       persistQueue();
     }
   } finally {
@@ -236,7 +299,7 @@ export function downloadTracks(tracks: AppTrack[]): void {
     if (t.origin !== 'remote' || downloads.has(t.key)) continue;
     const existing = nextItems[t.key];
     if (existing && existing.status !== 'error') continue;
-    nextItems[t.key] = { track: t, status: 'queued', progress: 0 };
+    nextItems[t.key] = { track: t, status: 'queued' };
     if (!existing) nextOrder.push(t.key);
     changed = true;
   }
@@ -260,6 +323,7 @@ export async function removeDownload(key: string): Promise<void> {
   cancelDownload(key);
   // A run that was past its transfer may still commit or clean up; settle it before reading the index.
   await inFlight;
+  flushCompletions();
   const entry = libIndex.getState().downloads.get(key);
   if (!entry) return;
   await writeTx((db) => db.runAsync('DELETE FROM downloads WHERE key = ?', key));
@@ -304,16 +368,21 @@ settingsStore.subscribe((s, prev) => {
 
 // --- Hooks -----------------------------------------------------------------------------------
 
+/** Progress of one track; only its own row re-renders on a tick. */
+export function useDownloadProgress(key: string): number {
+  return useStore(progressStore, (s) => s.p[key] ?? 0);
+}
+
 export function useDownloadState(key: string): { status: DownloadStatus; progress: number } {
   const done = useStore(libIndex, (s) => s.downloads.has(key));
   const status = useStore(dlStore, (s) => s.items[key]?.status);
-  const progress = useStore(dlStore, (s) => s.items[key]?.progress ?? 0);
+  const progress = useStore(progressStore, (s) => s.p[key] ?? 0);
   if (done) return { status: 'done', progress: 1 };
   return { status: status ?? 'none', progress };
 }
 
 export function useDownloads(): {
-  active: { track: AppTrack; status: DownloadStatus; progress: number }[];
+  active: { track: AppTrack; status: DownloadStatus }[];
   completedCount: number;
   bytesUsed: number;
 } {
@@ -321,7 +390,7 @@ export function useDownloads(): {
   const order = useStore(dlStore, (s) => s.order);
   const downloads = useStore(libIndex, (s) => s.downloads);
   const active = useMemo(
-    () => order.map((k) => ({ track: items[k].track, status: items[k].status, progress: items[k].progress })),
+    () => order.map((k) => ({ track: items[k].track, status: items[k].status })),
     [items, order],
   );
   const bytesUsed = useMemo(() => {

@@ -56,3 +56,13 @@ export function setDownload(key: string, entry: DownloadEntry | null): void {
   else next.delete(key);
   libIndex.setState({ downloads: next });
 }
+
+/** Applies several download changes with a single store update (one re-render pass for all subscribers). */
+export function setDownloads(updates: Iterable<readonly [string, DownloadEntry | null]>): void {
+  const next = new Map(libIndex.getState().downloads);
+  for (const [key, entry] of updates) {
+    if (entry) next.set(key, entry);
+    else next.delete(key);
+  }
+  libIndex.setState({ downloads: next });
+}

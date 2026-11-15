@@ -3,7 +3,9 @@ import { AccessibilityInfo, Platform } from 'react-native';
 import { create } from 'zustand';
 
 export type ToastKind = 'info' | 'success' | 'error' | 'progress';
-export type ToastData = { id: number; message: string; kind: ToastKind };
+/** Optional button on a toast (e.g. "Undo"). Pressing it dismisses the toast first, then runs `onPress`. */
+export type ToastAction = { label: string; onPress: () => void };
+export type ToastData = { id: number; message: string; kind: ToastKind; action?: ToastAction };
 
 /** Screen point a sheet opens from in the wide layout (a right-click), shown there as a menu. */
 export type SheetAnchor = { x: number; y: number };
@@ -34,14 +36,14 @@ export function closeSheet() {
  * Show a toast. `progress` toasts stay until replaced or dismissed; others auto-hide.
  * Returns the toast id so callers can dismiss exactly their own toast.
  */
-export function showToast(message: string, kind: ToastKind = 'info'): number {
+export function showToast(message: string, kind: ToastKind = 'info', action?: ToastAction): number {
   clearTimeout(toastTimer);
   const id = ++seq;
-  useOverlay.setState({ toast: { id, message, kind } });
+  useOverlay.setState({ toast: { id, message, kind, action } });
   // A live region on a freshly mounted view isn't announced reliably on Android; say it explicitly.
-  if (Platform.OS !== 'web') AccessibilityInfo.announceForAccessibility(message);
+  if (Platform.OS !== 'web') AccessibilityInfo.announceForAccessibility(action ? `${message}. ${action.label} available` : message);
   if (kind !== 'progress') {
-    toastTimer = setTimeout(() => dismissToast(id), kind === 'error' ? 4000 : 2400);
+    toastTimer = setTimeout(() => dismissToast(id), kind === 'error' ? 4000 : action ? 6000 : 2400);
   }
   return id;
 }
