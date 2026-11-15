@@ -2,7 +2,7 @@ import { resumeDownloads } from './downloads';
 import { resumeImports } from './imports';
 import { loadLibIndex } from './lib-index';
 import { startLibrarySync } from './library-sync';
-import { configureAudio, refreshQueueTracks } from './player/engine';
+import { configureAudio, refreshQueueTracks, restoreQueue } from './player/engine';
 import { fileStorageSupported } from './platform';
 import { startPruning } from './prune';
 import { settingsStore } from './settings';
@@ -18,6 +18,8 @@ const readyListeners: (() => void)[] = [];
  */
 export function startCore(): Promise<void> {
   if (ready) return ready;
+  // Runs from an effect, so after the first frame: only the current song was read before it (see engine.ts).
+  restoreQueue();
   void configureAudio();
   void syncWebSession();
   ready = loadLibIndex()

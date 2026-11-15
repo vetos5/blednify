@@ -2,15 +2,19 @@
  * Playback engine.
  *
  * One long-lived native `AudioPlaylist` (ExoPlayer playlist on Android, AVQueuePlayer on iOS) holds a
- * window over the JS queue: [previous?, current, up to WINDOW_AHEAD upcoming]. Native pre-buffers the
- * next track and transitions gaplessly, and lock-screen / notification next/previous work natively even
- * while JS is throttled. The JS queue (`entries`) stays authoritative.
+ * small window over the JS queue: [previous?, current, WINDOW_MIN..WINDOW_AHEAD upcoming]. Native
+ * pre-buffers the next track and transitions gaplessly, and lock-screen / notification next/previous work
+ * natively even while JS is throttled: when JS gets to run after an advance, native still holds at least
+ * WINDOW_MIN - 1 upcoming tracks. Each advance tops the window back up (`syncWindow`), a slot whose source
+ * changed (a download landed) is replaced on its own, and already-played slots are trimmed now and then.
+ * The JS queue (`entries`) stays authoritative.
  *
  * IMPORTANT (Android): expo-audio's Media3 lock-screen session does not see playlist edits made after
  * it was attached; the notification's MediaController then crashes the app with
  * "Invalid PlayerInfo update" on the next transition. So auto-advance never edits the native playlist,
  * and every edit goes through `editNative`, which detaches the session, edits, and re-attaches it.
- * Edits that would happen while the app is in the background are deferred (`windowDirty`).
+ * In the background only edits needed to keep playback going (topping up a window that is running low)
+ * are made; the rest wait for the foreground (`windowDirty`).
  */
 import {
   createAudioPlaylist,
@@ -26,10 +30,11 @@ import { AppState, Platform } from 'react-native';
 import { authHeadersFor } from '../auth';
 import { recordRecent } from '../library';
 import { kv } from '../settings';
-import { fromStorable, resolveTrack, toStorable } from '../tracks';
+import { fromStorable, resolveTrack } from '../tracks';
 import type { AppTrack, PlayerState, RepeatMode } from '../types';
 import { errorMessage, shuffled } from '../util';
 import { lockArtwork, prefetchLockArtwork } from './lock-art';
+import { fromRow, toRow, type QueueRow } from './queue-rows';
 import { playerStore, progressStore } from './store';
 
 type Entry = { uid: number; track: AppTrack };
@@ -59,7 +64,13 @@ const isTransientHttpStatus = (status: number) =>
 /** How long status events reporting the pre-seek position are ignored while a seek settles. */
 const SEEK_SETTLE_MS = 6_000;
 const SEEK_TOLERANCE_MS = 1_500;
-const QUEUE_KEY = 'player.queue.v1';
+/** Compact rows (see queue-rows.ts). */
+const QUEUE_KEY = 'player.queue.v2';
+/** Full track JSON, written before v2; migrated on first restore. */
+const LEGACY_QUEUE_KEY = 'player.queue.v1';
+/** The queue is saved this long after the last edit (at most QUEUE_SAVE_MAX_WAIT_MS after the first). */
+const QUEUE_SAVE_DEBOUNCE_MS = 1_500;
+const QUEUE_SAVE_MAX_WAIT_MS = 10_000;
 const STATE_KEY = 'player.state.v1';
 const POSITION_KEY = 'player.position.v1';
 
@@ -95,8 +106,17 @@ let awaitingClear = false;
 let lockActive = false;
 /** The native upcoming window differs from the queue; re-sync when it is safe (foreground). */
 let windowDirty = false;
-/** Upcoming tracks kept in the native playlist after the current one. */
-const WINDOW_AHEAD = 200;
+/** Upcoming tracks the native playlist is filled up to after the current one. */
+const WINDOW_AHEAD = 5;
+/**
+ * Top up once fewer than this many upcoming tracks are left natively. With 5/3 the playlist is edited once every
+ * three songs, and native still has two songs queued when it advances before JS has had a chance to run.
+ */
+const WINDOW_MIN = 3;
+/** Played slots kept before the current one (native "previous"); more than TRIM_BEHIND are trimmed. */
+const KEEP_BEHIND = 1;
+/** Must stay above WINDOW_AHEAD (see `syncWindow`, stale status events). */
+const TRIM_BEHIND = 8;
 
 // --- Playback intent / bookkeeping -----------------------------------------------------------
 
@@ -300,49 +320,82 @@ function editNative(edit: (n: AudioPlaylist) => void) {
   if (reattach && cur) activateLockScreen(cur.track, true);
 }
 
-/** Upcoming playable entries that should follow the current one natively (no repeat-all wrap). */
-function desiredTail(): Entry[] {
-  const out: Entry[] = [];
+type Slot = { uid: number; src: Source; key: string };
+
+/** Upcoming playable entries that may follow the current one natively (no repeat-all wrap), up to WINDOW_AHEAD. */
+function desiredTail(): Slot[] {
+  const out: Slot[] = [];
   for (let i = index + 1; i < entries.length && out.length < WINDOW_AHEAD; i++) {
-    if (!sourceOf(entries[i].track)) break;
-    out.push(entries[i]);
+    const src = sourceOf(entries[i].track);
+    if (!src) break;
+    out.push({ uid: entries[i].uid, src, key: srcKey(src) });
   }
   return out;
 }
 
-/** Make the native slots after the current one equal the queue's upcoming entries. */
+/**
+ * Bring the native slots after the current one in line with the queue, with as few native calls as possible:
+ * a slot whose source changed (download landed, new server URL or token) is replaced in place, slots after the
+ * first entry that differs are removed and re-added, and the window is topped up to WINDOW_AHEAD once fewer than
+ * WINDOW_MIN upcoming tracks are left. A no-op when native already matches, the usual case after an advance.
+ */
 function syncWindow() {
   if (!nat || !natReady) return;
   // Native may have advanced before its event reached JS; catch up first.
   const live = nat.currentIndex;
   if (!advancingTo && live !== natCur && live >= 0 && live < natUids.length && nat.trackCount === natUids.length) onNativeIndex(live);
-  const want = desiredTail().flatMap((e) => {
-    const src = sourceOf(e.track);
-    return src ? [{ uid: e.uid, src }] : [];
-  });
+  if (!nat || !natReady) return;
   // After a JS-initiated skip native is already on `advancingTo.ci`, even though its event hasn't arrived yet.
   const curSlot = advancingTo?.ci ?? natCur;
+  if (curSlot < 0 || curSlot >= natUids.length) return;
+  const want = desiredTail();
   const haveUids = natUids.slice(curSlot + 1);
   const haveKeys = natUris.slice(curSlot + 1);
-  if (want.length === haveUids.length && want.every((w, k) => w.uid === haveUids[k] && srcKey(w.src) === haveKeys[k])) {
+  let same = 0;
+  while (same < want.length && same < haveUids.length && want[same].uid === haveUids[same]) same++;
+  const replace: number[] = [];
+  for (let k = 0; k < same; k++) if (want[k].key !== haveKeys[k]) replace.push(k);
+  const drop = haveUids.length - same;
+  const low = same < Math.min(want.length, WINDOW_MIN);
+  // Fill up whenever the playlist is edited anyway, so edits stay rare.
+  const add = low || drop > 0 || replace.length > 0 ? want.slice(same) : [];
+  if (!replace.length && !drop && !add.length) {
     windowDirty = false;
     return;
   }
-  if (lockActive && AppState.currentState !== 'active') {
+  // In the background, edit only when native is about to run out of the right songs (see header).
+  if (!low && lockActive && AppState.currentState !== 'active') {
     windowDirty = true;
     return;
   }
   windowDirty = false;
+  // Trimming shifts native indices. It is only done when it removes more slots than are added (TRIM_BEHIND >
+  // WINDOW_AHEAD), so no status event from before or during this edit has the final track count, and the
+  // `trackCount` check in `onStatus` drops all of them.
+  const trim = !advancingTo && curSlot > TRIM_BEHIND ? curSlot - KEEP_BEHIND : 0;
+  // Native first, then the JS mirror: events sent mid-edit (synchronously on web) see a count mismatch.
   editNative((n) => {
-    for (let i = natUids.length - 1; i > curSlot; i--) {
+    for (const k of replace) {
+      const slot = curSlot + 1 + k;
+      n.insert(want[k].src, slot);
+      natUris[slot] = want[k].key;
+      n.remove(slot + 1);
+    }
+    for (let i = natUids.length - 1; i > curSlot + same; i--) {
       n.remove(i);
       natUids.pop();
       natUris.pop();
     }
-    for (const w of want) {
+    for (const w of add) {
       n.add(w.src);
       natUids.push(w.uid);
-      natUris.push(srcKey(w.src));
+      natUris.push(w.key);
+    }
+    for (let k = 0; k < trim; k++) {
+      n.remove(0);
+      natUids.shift();
+      natUris.shift();
+      natCur--;
     }
   });
 }
@@ -394,12 +447,10 @@ function load(idx: number, play: boolean, positionMs = 0) {
   natUids.push(cur.uid);
   natUris.push(srcKey(src));
   natCur = natUids.length - 1;
-  for (const e of desiredTail()) {
-    const s2 = sourceOf(e.track);
-    if (!s2) break;
-    n.add(s2);
-    natUids.push(e.uid);
-    natUris.push(srcKey(s2));
+  for (const w of desiredTail()) {
+    n.add(w.src);
+    natUids.push(w.uid);
+    natUris.push(w.key);
   }
   n.skipTo(natCur);
   // The rebuilt window starts on the previous song's slot; ignore native until it lands on ours.
@@ -465,8 +516,8 @@ function onNativeIndex(ci: number) {
   }
   publishIndex();
   if (lockActive) nat?.updateLockScreenMetadata(metadataOf(t));
-  // Only touch the native playlist when it is out of date or about to run dry; never routinely.
-  if (windowDirty || (natCur >= natUids.length - 1 && index + 1 < entries.length)) syncWindow();
+  // Top up the window (a no-op until it runs low or is out of date).
+  syncWindow();
   armWatchdog();
 }
 
@@ -645,77 +696,162 @@ function onPlaybackError(message: string, network = false) {
 }
 
 // --- Persistence -----------------------------------------------------------------------------
-// The (potentially large) queue is written only when it changes; index/mode/position are tiny keys.
+// The queue is stored as compact rows (queue-rows.ts) and saved debounced, only when it really changed. The
+// index, modes and the current track are a tiny key written right away. At launch only that key is read, so the
+// mini player has its song on the first frame; the queue itself is parsed after first paint (`restoreQueue`, from
+// startCore) or, at the latest, on the first player call.
 
-type PersistedQueue = { queue: AppTrack[]; original: number[] };
-type PersistedState = { index: number; repeat: RepeatMode; shuffle: boolean };
+type PersistedQueue = { rows: QueueRow[]; original: number[] };
+type LegacyQueue = { queue: AppTrack[]; original: number[] };
+type PersistedState = { index: number; repeat: RepeatMode; shuffle: boolean; cur?: QueueRow };
 
+/** The saved queue has been read into `entries`; until then nothing may write it (it would save an empty queue). */
+let restored = false;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let persistPendingSince = 0;
+let lastQueueJson: string | null = null;
 
 function persistState() {
+  if (!restored) return;
   const { repeat, shuffle } = S();
-  kv.set(STATE_KEY, JSON.stringify({ index, repeat, shuffle } satisfies PersistedState));
+  const cur = entries[index]?.track;
+  kv.set(STATE_KEY, JSON.stringify({ index, repeat, shuffle, cur: cur ? toRow(cur) : undefined } satisfies PersistedState));
 }
 
 function scheduleQueuePersist() {
-  if (persistTimer) return;
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    persistQueueNow();
-  }, 400);
+  if (!restored) return;
+  const now = Date.now();
+  if (persistTimer) {
+    // Keep pushing the save back while edits keep coming, but not forever.
+    if (now - persistPendingSince > QUEUE_SAVE_MAX_WAIT_MS) return;
+    clearTimeout(persistTimer);
+  } else {
+    persistPendingSince = now;
+  }
+  persistTimer = setTimeout(flushQueuePersist, QUEUE_SAVE_DEBOUNCE_MS);
+}
+
+function flushQueuePersist() {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = null;
+  persistQueueNow();
 }
 
 function persistQueueNow() {
+  if (!restored) return;
   const pos = new Map(entries.map((e, i) => [e.uid, i]));
   const data: PersistedQueue = {
-    queue: entries.map((e) => toStorable(e.track)),
+    rows: entries.map((e) => toRow(e.track)),
     original: original.map((e) => pos.get(e.uid) ?? -1).filter((i) => i >= 0),
   };
-  kv.set(QUEUE_KEY, JSON.stringify(data));
+  const json = JSON.stringify(data);
+  // Many publishes only change URIs (a download landed), which rows don't store.
+  if (json === lastQueueJson) return;
+  lastQueueJson = json;
+  kv.set(QUEUE_KEY, json);
 }
 
 function savePosition() {
   kv.set(POSITION_KEY, Math.round(progressStore.getState().positionMs));
 }
 
-function restore() {
-  const rawQueue = kv.getString(QUEUE_KEY);
-  const rawState = kv.getString(STATE_KEY);
+function readState(): Partial<PersistedState> {
   try {
-    const st: Partial<PersistedState> = rawState ? JSON.parse(rawState) : {};
-    playerStore.setState({ repeat: st.repeat ?? 'off', shuffle: !!st.shuffle });
-    if (!rawQueue) return;
-    const q = JSON.parse(rawQueue) as PersistedQueue;
-    entries = q.queue.map((t) => toEntry(resolveTrack(fromStorable(t))));
-    original = q.original.length === entries.length ? q.original.map((i) => entries[i]) : entries.slice();
-    index = entries.length ? Math.min(Math.max(st.index ?? 0, 0), entries.length - 1) : -1;
-    const current = entries[index]?.track ?? null;
-    playerStore.setState({ queue: entries.map((e) => e.track), index, current });
-    progressStore.setState({ positionMs: kv.getNumber(POSITION_KEY) ?? 0, durationMs: current?.durationMs ?? 0 });
+    const raw = kv.getString(STATE_KEY);
+    const st: unknown = raw ? JSON.parse(raw) : null;
+    return st && typeof st === 'object' ? (st as Partial<PersistedState>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Modes and the current song only (see above). Restores everything now when the saved state predates `cur`. */
+function restoreHead() {
+  const st = readState();
+  playerStore.setState({ repeat: st.repeat === 'all' || st.repeat === 'one' ? st.repeat : 'off', shuffle: !!st.shuffle });
+  const cur = st.cur ? fromRow(st.cur) : null;
+  if (!cur) return restoreQueue();
+  const t = resolveTrack(cur);
+  playerStore.setState({ queue: [t], index: 0, current: t });
+  progressStore.setState({ positionMs: kv.getNumber(POSITION_KEY) ?? 0, durationMs: t.durationMs });
+}
+
+/** Reads the saved queue (once). Migrates the old full-JSON format. Safe to call any number of times. */
+export function restoreQueue() {
+  if (restored) return;
+  restored = true;
+  const st = readState();
+  let migrated = false;
+  try {
+    let tracks: (AppTrack | null)[] = [];
+    let order: unknown = [];
+    const raw = kv.getString(QUEUE_KEY);
+    if (raw) {
+      lastQueueJson = raw;
+      const q = JSON.parse(raw) as Partial<PersistedQueue>;
+      tracks = Array.isArray(q.rows) ? q.rows.map((r) => fromRow(r)) : [];
+      order = q.original;
+    } else {
+      const legacy = kv.getString(LEGACY_QUEUE_KEY);
+      if (legacy) {
+        migrated = true;
+        const q = JSON.parse(legacy) as Partial<LegacyQueue>;
+        tracks = Array.isArray(q.queue)
+          ? q.queue.map((t) => (t && typeof t === 'object' && typeof t.key === 'string' ? fromStorable(t) : null))
+          : [];
+        order = q.original;
+      }
+    }
+    // Saved positions → positions after dropping unreadable rows.
+    const at: number[] = [];
+    entries = [];
+    for (const t of tracks) {
+      at.push(t ? entries.length : -1);
+      if (t) entries.push(toEntry(resolveTrack(t)));
+    }
+    const orig = Array.isArray(order) ? order.map((i) => (typeof i === 'number' ? (at[i] ?? -1) : -1)) : [];
+    original =
+      orig.length === entries.length && new Set(orig).size === entries.length && orig.every((i) => i >= 0)
+        ? orig.map((i) => entries[i])
+        : entries.slice();
+    index = entries.length ? Math.min(Math.max(Number(st.index) || 0, 0), entries.length - 1) : -1;
+    // The state key is written right away and the queue a little later; after a crash in between, find the song.
+    const curKey = Array.isArray(st.cur) ? st.cur[0] : null;
+    if (curKey && entries[index]?.track.key !== curKey) {
+      const i = entries.findIndex((e) => e.track.key === curKey);
+      if (i >= 0) index = i;
+    }
   } catch (e) {
     console.warn('[player] could not restore queue', e);
     entries = [];
     original = [];
     index = -1;
   }
+  const current = entries[index]?.track ?? null;
+  const shownKey = S().current?.key;
+  playerStore.setState({ queue: entries.map((e) => e.track), index, current });
+  if (!st.cur || current?.key !== shownKey)
+    progressStore.setState({ positionMs: current ? (kv.getNumber(POSITION_KEY) ?? 0) : 0, durationMs: current?.durationMs ?? 0 });
+  if (migrated) {
+    persistQueueNow();
+    persistState();
+    kv.remove(LEGACY_QUEUE_KEY);
+  }
 }
 
-restore();
+restoreHead();
 
 AppState.addEventListener('change', (state) => {
   if (state === 'active' && windowDirty) syncWindow();
   if (state !== 'active') {
     savePosition();
-    if (persistTimer) {
-      clearTimeout(persistTimer);
-      persistTimer = null;
-      persistQueueNow();
-    }
+    if (persistTimer) flushQueuePersist();
   }
 });
 
 /** Re-resolve URIs of queued tracks (server URL changed, download finished/removed). */
 export function refreshQueueTracks() {
+  restoreQueue();
   let changed = false;
   for (const e of entries) {
     const r = resolveTrack(e.track);
@@ -731,6 +867,7 @@ export function refreshQueueTracks() {
 
 /** Drop every queue entry whose track key is in `keys` (e.g. deleted local files). */
 export function removeKeysFromQueue(keys: ReadonlySet<string>) {
+  restoreQueue();
   if (!entries.some((e) => keys.has(e.track.key))) return;
   const curUid = entries[index]?.uid;
   const curRemoved = !!entries[index] && keys.has(entries[index].track.key);
@@ -752,13 +889,13 @@ export function removeKeysFromQueue(keys: ReadonlySet<string>) {
 
 /** Replaces the info (title, artist, …) of queued tracks with newer copies; playback is untouched. */
 export function updateQueueTracks(fresh: ReadonlyMap<string, AppTrack>) {
+  restoreQueue();
   if (!entries.some((e) => fresh.has(e.track.key))) return;
-  const swap = (e: Entry): Entry => {
+  // In place: `original` holds the same Entry objects as `entries` (shuffle and playNext rely on that).
+  for (const e of entries) {
     const t = fresh.get(e.track.key);
-    return t ? { ...e, track: t } : e;
-  };
-  entries = entries.map(swap);
-  original = original.map(swap);
+    if (t) e.track = resolveTrack(t);
+  }
   publishQueue();
 }
 
@@ -960,20 +1097,28 @@ function toggleShuffle() {
   syncWindow();
 }
 
+/** Every entry point reads the saved queue first, in case it is called before startCore restored it. */
+const restoring =
+  <A extends unknown[], R>(fn: (...args: A) => R) =>
+  (...args: A): R => {
+    restoreQueue();
+    return fn(...args);
+  };
+
 export const player = {
-  playTracks,
-  togglePlay: () => (isActive() ? pause() : play()),
-  play,
-  pause,
-  next,
-  previous,
-  seekTo,
-  playNext,
-  addToQueue,
-  removeFromQueue,
-  moveInQueue,
-  jumpTo,
-  setRepeat,
-  cycleRepeat,
-  toggleShuffle,
+  playTracks: restoring(playTracks),
+  togglePlay: restoring(() => (isActive() ? pause() : play())),
+  play: restoring(play),
+  pause: restoring(pause),
+  next: restoring(next),
+  previous: restoring(previous),
+  seekTo: restoring(seekTo),
+  playNext: restoring(playNext),
+  addToQueue: restoring(addToQueue),
+  removeFromQueue: restoring(removeFromQueue),
+  moveInQueue: restoring(moveInQueue),
+  jumpTo: restoring(jumpTo),
+  setRepeat: restoring(setRepeat),
+  cycleRepeat: restoring(cycleRepeat),
+  toggleShuffle: restoring(toggleShuffle),
 };
