@@ -28,7 +28,7 @@ export function TabBar({ state, emitter, navigateToTab, insets }: MaterialTopTab
     lastIndex.current = state.index;
   }, [state.index]);
   return (
-    <View style={[styles.root, { paddingBottom: insets.bottom }]}>
+    <View role="navigation" style={[styles.root, { paddingBottom: insets.bottom }]}>
       <MiniPlayer />
       <View style={styles.row} accessibilityRole="tablist">
         {state.routes.map((route, i) => {

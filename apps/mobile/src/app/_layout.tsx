@@ -1,8 +1,8 @@
+import { View , Platform } from 'react-native';
 import { Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { Fragment, useEffect } from 'react';
-import { Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -50,7 +50,14 @@ export default function RootLayout() {
         <CoreProvider>
           <ThemeProvider value={navigationThemeFor(colors)}>
             <StatusBar style={colors.isLight ? 'dark' : 'light'} />
-            {wide ? <DesktopShell>{stack}</DesktopShell> : stack}
+            {wide ? (
+              <DesktopShell>{stack}</DesktopShell>
+            ) : (
+              // Web landmark: screen readers can jump straight to the page content.
+              <View role="main" style={styles.root}>
+                {stack}
+              </View>
+            )}
             <ActionSheetHost />
             <ToastHost />
           </ThemeProvider>
