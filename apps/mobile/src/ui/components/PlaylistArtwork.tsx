@@ -9,7 +9,7 @@ import { useImageSource } from '@/core';
 function Cell({ uri, size }: { uri: string; size?: number }) {
   const styles = useStyles();
   const source = useImageSource(Platform.OS === 'web' && !size ? null : uri, size === undefined ? undefined : size / 2);
-  return <Image source={source} style={styles.cell} contentFit="cover" cachePolicy="memory-disk" recyclingKey={uri} transition={120} />;
+  return <Image source={source} style={styles.cell} contentFit="cover" cachePolicy="memory-disk" recyclingKey={uri} transition={120} accessibilityLabel="" />;
 }
 
 /** 2×2 mosaic when a playlist has 4 covers, single cover otherwise, branded fallback when empty. */

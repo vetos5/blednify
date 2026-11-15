@@ -43,6 +43,7 @@ export function ArtistCard({ track }: { track: AppTrack }) {
           style={StyleSheet.absoluteFill}
           contentFit="cover"
           transition={250}
+          accessibilityLabel=""
         />
       ) : (
         <View style={[StyleSheet.absoluteFill, styles.placeholderBg]} />

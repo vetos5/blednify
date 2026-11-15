@@ -153,6 +153,21 @@ function luminance([r, g, b]: RGB): number {
   return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
 }
 
+function contrast(a: RGB, b: RGB): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** `mix(ink, bg, t)`, moved towards the ink until small text on `bg` reads at WCAG AA (4.5:1). */
+function readableMix(ink: RGB, bg: RGB, t: number): RGB {
+  let c = mix(ink, bg, t);
+  while (t > 0 && contrast(c, bg) < 4.5) {
+    t = Math.max(0, t - 0.02);
+    c = mix(ink, bg, t);
+  }
+  return c;
+}
+
 const WHITE: RGB = [255, 255, 255];
 const BLACK: RGB = [0, 0, 0];
 
@@ -171,8 +186,8 @@ function derivePalette(bgHex: string, accentHex: string, backdrop: Backdrop): Pa
     border: rgba(isLight ? BLACK : WHITE, 0.08),
     borderStrong: rgba(isLight ? BLACK : WHITE, 0.14),
     text: toHex(ink),
-    textSecondary: toHex(mix(ink, bg, 0.38)),
-    textTertiary: toHex(mix(ink, bg, 0.6)),
+    textSecondary: toHex(readableMix(ink, bg, 0.38)),
+    textTertiary: toHex(readableMix(ink, bg, 0.6)),
     accent: toHex(accent),
     accentPressed: toHex(mix(accent, BLACK, 0.16)),
     accentDeep: toHex(mix(accent, BLACK, 0.5)),

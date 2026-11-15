@@ -123,7 +123,11 @@ export function SeekBar({ fallbackDurationMs }: { fallbackDurationMs: number }) 
           }}
           accessibilityRole="adjustable"
           accessibilityLabel="Seek"
-          accessibilityValue={{ min: 0, max: Math.round(durationMs / 1000), now: Math.round(shownMs / 1000), text: formatDuration(shownMs) }}
+          // aria-value* rather than accessibilityValue: react-native-web drops the latter, leaving a slider with no value.
+          aria-valuemin={0}
+          aria-valuemax={Math.round(durationMs / 1000)}
+          aria-valuenow={Math.round(shownMs / 1000)}
+          aria-valuetext={formatDuration(shownMs)}
           accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
           onAccessibilityAction={(e) => {
             const delta = e.nativeEvent.actionName === 'increment' ? 10_000 : -10_000;
