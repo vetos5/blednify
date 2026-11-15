@@ -15,6 +15,7 @@ import { Text } from '@/ui/components/Text';
 import { useReadableColumn } from '@/ui/layout';
 import { nav } from '@/ui/nav';
 import { makeStyles, radius, space } from '@/ui/theme';
+import { spokenLabel } from '@/ui/a11y';
 
 /** Admin: artists that look like the same artist written differently, to merge or dismiss. */
 export default function DuplicatesScreen() {
@@ -85,7 +86,7 @@ function PairCard({ pair }: { pair: ArtistPair }) {
 function Side({ artist }: { artist: ArtistView }) {
   const styles = useStyles();
   return (
-    <PressableScale onPress={() => nav.artist(artist.id, 'remote')} accessibilityLabel={`Open ${artist.name}`} style={styles.side}>
+    <PressableScale onPress={() => nav.artist(artist.id, 'remote')} accessibilityLabel={spokenLabel(`Open ${artist.name}`)} style={styles.side}>
       <Artwork uri={artist.artworkUri} label={artist.name} size={56} round />
       <Text variant="bodyStrong" numberOfLines={2} style={styles.center}>
         {artist.name}

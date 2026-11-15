@@ -32,6 +32,7 @@ import { Text } from '@/ui/components/Text';
 import { nav } from '@/ui/nav';
 import { useReadableColumn } from '@/ui/layout';
 import { makeStyles, radius, space, useColors } from '@/ui/theme';
+import { spokenLabel } from '@/ui/a11y';
 
 const SOURCE_LABEL = { spotify: 'Spotify', soundcloud: 'SoundCloud', youtube: 'YouTube' } as const;
 
@@ -226,7 +227,7 @@ function ImportCard({ entry }: { entry: ImportEntry }) {
       <PressableScale
         onPress={() => (playlistId ? nav.playlist(playlistId) : setOpen((v) => !v))}
         accessibilityRole="button"
-        accessibilityLabel={job.name ?? 'Import'}
+        accessibilityLabel={spokenLabel(job.name ?? 'Import')}
         style={styles.jobMain}>
         <View style={styles.art}>
           {playlistId || cover ? (
@@ -272,7 +273,7 @@ function ImportCard({ entry }: { entry: ImportEntry }) {
       {job.warning ? <Warn text={job.warning} /> : null}
       {active ? <CurrentSongs job={job} /> : null}
       {failedItems.length ? (
-        <PressableScale onPress={() => setOpen((v) => !v)} accessibilityLabel="Show songs that failed">
+        <PressableScale onPress={() => setOpen((v) => !v)} accessibilityLabel={spokenLabel('Show songs that failed')}>
           <Text variant="caption" color={colors.textSecondary}>
             {open ? 'Hide' : 'Show'} {failedItems.length} {failedItems.length === 1 ? 'song' : 'songs'} that failed
           </Text>

@@ -210,7 +210,7 @@ function LibraryItem({
   const row = (
     <Pressable
       accessibilityRole="link"
-      accessibilityLabel={label}
+      accessibilityLabel={sub && !rail ? undefined : label}
       accessibilityState={{ selected: active }}
       onPress={onPress}
       {...(onContextMenu ? ({ onContextMenu } as object) : null)}
@@ -274,7 +274,7 @@ function Footer({ rail, active }: { rail: boolean; active: boolean }) {
   const row = (
     <Pressable
       accessibilityRole="link"
-      accessibilityLabel={`Settings. Server: ${status}`}
+      accessibilityLabel={rail ? `Settings. Server: ${status}` : undefined}
       onPress={nav.settings}
       style={({ hovered }) => [styles.nav, rail && styles.navRail, hovered && styles.hover, active && styles.active]}>
       {({ hovered }) => (

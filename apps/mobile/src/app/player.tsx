@@ -51,6 +51,7 @@ import { useIsWide } from '@/ui/layout';
 import { goBack, nav } from '@/ui/nav';
 import { showSheet } from '@/ui/overlay';
 import { ForceDark, makeStyles, radius, space, useColors, webLayer } from '@/ui/theme';
+import { spokenLabel } from '@/ui/a11y';
 
 const DISMISS_DISTANCE = 140;
 const IS_WEB = Platform.OS === 'web';
@@ -286,7 +287,7 @@ function NowPlaying({
             disabled={!track.album}
             onPress={goAlbum}
             accessibilityRole="button"
-            accessibilityLabel={`Album ${track.album}`}>
+            accessibilityLabel={spokenLabel(`Album ${track.album}`)}>
             <Text variant="micro">NOW PLAYING</Text>
             <Text variant="caption" color={colors.text} numberOfLines={1} style={styles.bold}>
               {track.album || 'Single'}

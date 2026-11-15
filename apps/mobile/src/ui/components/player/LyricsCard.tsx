@@ -12,6 +12,7 @@ import { Text } from '@/ui/components/Text';
 import { haptics } from '@/ui/haptics';
 import { nav } from '@/ui/nav';
 import { gradientFor, makeStyles, radius, space, useColors } from '@/ui/theme';
+import { spokenLabel } from '../../a11y';
 
 export function LyricsCard({ track, lyrics }: { track: AppTrack; lyrics: Lyrics }) {
   const styles = useStyles();
@@ -28,7 +29,7 @@ export function LyricsCard({ track, lyrics }: { track: AppTrack; lyrics: Lyrics 
     <Pressable
       onPress={openLyrics}
       accessibilityRole="button"
-      accessibilityLabel="Lyrics, tap to expand"
+      accessibilityLabel={spokenLabel('Lyrics, tap to expand')}
       accessibilityHint="Opens full lyrics view"
       style={({ pressed }) => [
         styles.card,

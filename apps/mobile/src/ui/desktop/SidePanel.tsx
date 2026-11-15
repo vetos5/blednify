@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { player, usePlayer, type AppTrack } from '@/core';
 
+import { spokenLabel } from '../a11y';
 import { removeFromQueueWithUndo } from '../actions';
 import { Artwork } from '../components/Artwork';
 import { EmptyState } from '../components/EmptyState';
@@ -179,50 +180,54 @@ function QueuePanel() {
 function QueueRow({ track, abs, dragging, offset, handle }: { track: AppTrack; abs: number; dragging: boolean; offset: number; handle: object }) {
   const styles = useStyles();
   const colors = useColors();
+  const [hovered, setHovered] = useState(false);
   return (
     <View style={[styles.rowWrap, { transform: [{ translateY: offset }] }, dragging ? styles.dragging : styles.settle]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Play ${track.title} by ${track.artist}`}
-        onPress={() => player.jumpTo(abs)}
+      {/* The remove button is a sibling of the row's play button, not nested in it: a screen reader on web can't
+          reach a button inside a button. Hover is tracked on this wrapper so the pointer can cross between them. */}
+      <View
+        style={[styles.row, (hovered || dragging) && styles.hover]}
         {...({
+          onMouseEnter: () => setHovered(true),
+          onMouseLeave: () => setHovered(false),
           onContextMenu: (e: MouseEvent) => {
             e.preventDefault();
             openTrackActions(track, { anchor: { x: e.clientX, y: e.clientY } });
           },
-        } as object)}
-        style={({ hovered }) => [styles.row, (hovered || dragging) && styles.hover]}>
-        {({ hovered }) => (
-          <>
-            <View style={styles.handle} {...handle} accessibilityLabel="Drag to reorder">
-              {hovered || dragging ? (
-                <Icon name="reorder-three" size={16} color={colors.textSecondary} />
-              ) : (
-                <Artwork uri={track.artworkUri} label={track.album || track.title} size={40} recyclingKey={track.key} />
-              )}
-            </View>
-            <View style={styles.meta}>
-              <Text variant="bodyStrong" numberOfLines={1} style={styles.title}>
-                {track.title}
-              </Text>
-              <Text variant="caption" numberOfLines={1} style={styles.sub}>
-                {track.artist}
-              </Text>
-            </View>
-            {hovered && !dragging ? (
-              <Tip label="Remove from queue" side="bottom">
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Remove from queue"
-                  onPress={() => removeFromQueueWithUndo(abs)}
-                  style={({ hovered: h }) => [styles.remove, h && styles.hover]}>
-                  <Icon name="close" size={16} color={colors.textSecondary} />
-                </Pressable>
-              </Tip>
-            ) : null}
-          </>
-        )}
-      </Pressable>
+        } as object)}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={spokenLabel(`Play ${track.title} by ${track.artist}`)}
+          onPress={() => player.jumpTo(abs)}
+          style={styles.rowMain}>
+          <View style={styles.handle} {...handle} accessibilityLabel="Drag to reorder">
+            {hovered || dragging ? (
+              <Icon name="reorder-three" size={16} color={colors.textSecondary} />
+            ) : (
+              <Artwork uri={track.artworkUri} label={track.album || track.title} size={40} recyclingKey={track.key} />
+            )}
+          </View>
+          <View style={styles.meta}>
+            <Text variant="bodyStrong" numberOfLines={1} style={styles.title}>
+              {track.title}
+            </Text>
+            <Text variant="caption" numberOfLines={1} style={styles.sub}>
+              {track.artist}
+            </Text>
+          </View>
+        </Pressable>
+        {hovered && !dragging ? (
+          <Tip label="Remove from queue" side="bottom">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Remove from queue"
+              onPress={() => removeFromQueueWithUndo(abs)}
+              style={({ hovered: h }) => [styles.remove, h && styles.hover]}>
+              <Icon name="close" size={16} color={colors.textSecondary} />
+            </Pressable>
+          </Tip>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -259,6 +264,7 @@ const useStyles = makeStyles((colors) => ({
   settle: { transitionProperty: 'transform', transitionDuration: '140ms' } as object,
   dragging: { zIndex: 5, backgroundColor: colors.surface2, borderRadius: radius.sm, shadowColor: colors.black, shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
   row: { height: ROW_H, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.sm, borderRadius: radius.sm },
+  rowMain: { flex: 1, minWidth: 0, height: ROW_H, flexDirection: 'row', alignItems: 'center', gap: space.md },
   nowRow: { marginBottom: space.xs },
   handle: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', cursor: 'grab', touchAction: 'none' } as object,
   meta: { flex: 1, minWidth: 0, gap: 1 },

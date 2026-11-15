@@ -11,6 +11,7 @@ import { haptics } from '@/ui/haptics';
 import { nav } from '@/ui/nav';
 import { makeStyles, radius, space, useColors } from '@/ui/theme';
 import { useGlassSurface } from '../../chrome';
+import { spokenLabel } from '../../a11y';
 
 export function ArtistCard({ track }: { track: AppTrack }) {
   const styles = useStyles();
@@ -35,7 +36,7 @@ export function ArtistCard({ track }: { track: AppTrack }) {
     <Pressable
       onPress={handlePress}
       accessibilityRole="button"
-      accessibilityLabel={`About ${track.artist}, tap to view artist`}
+      accessibilityLabel={spokenLabel(`About ${track.artist}, tap to view artist`)}
       style={({ pressed }) => [styles.card, glass, pressed && styles.pressed]}>
       {imageUri ? (
         <Image

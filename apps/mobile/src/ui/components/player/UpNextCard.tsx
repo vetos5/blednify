@@ -8,6 +8,7 @@ import { haptics } from '@/ui/haptics';
 import { nav } from '@/ui/nav';
 import { makeStyles, radius, space, useColors } from '@/ui/theme';
 import { useGlassSurface } from '../../chrome';
+import { spokenLabel } from '../../a11y';
 
 export function UpNextCard() {
   const styles = useStyles();
@@ -64,7 +65,7 @@ export function UpNextCard() {
                 key={`${queueIndex}:${track.key}`}
                 onPress={() => handleJump(queueIndex)}
                 accessibilityRole="button"
-                accessibilityLabel={`Play ${track.title} by ${track.artist}`}
+                accessibilityLabel={spokenLabel(`Play ${track.title} by ${track.artist}`)}
                 android_ripple={{ color: 'rgba(255,255,255,0.06)' }}
                 style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
                 <Artwork

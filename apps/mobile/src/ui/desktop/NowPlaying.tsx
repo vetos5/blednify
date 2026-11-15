@@ -15,6 +15,7 @@ import { LyricsView } from './LyricsView';
 import { closeNowPlaying } from './now-playing';
 import { Tip } from './Tip';
 import { Pressable } from './web';
+import { spokenLabel } from '../a11y';
 
 /**
  * Wide layout's Now playing view (the `/player` route): the cover large beside synced lyrics, or beside
@@ -142,7 +143,7 @@ function UpNext() {
           <Pressable
             key={`${index + 1 + i}:${t.key}`}
             accessibilityRole="button"
-            accessibilityLabel={`Play ${t.title} by ${t.artist}`}
+            accessibilityLabel={spokenLabel(`Play ${t.title} by ${t.artist}`)}
             onPress={() => player.jumpTo(index + 1 + i)}
             style={({ hovered }) => [styles.nextRow, hovered && styles.closeHover]}>
             <Artwork uri={t.artworkUri} label={t.album || t.title} size={48} recyclingKey={t.key} />

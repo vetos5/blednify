@@ -13,6 +13,7 @@ import { Equalizer } from './Equalizer';
 import { Icon } from './Icon';
 import { LikeButton } from './LikeButton';
 import { Text } from './Text';
+import { spokenLabel } from '../a11y';
 
 export type TrackRowProps = {
   track: AppTrack;
@@ -47,7 +48,7 @@ function PhoneTrackRow({ track, index, onPress, onMore, leading = 'artwork', sub
     <View style={styles.row}>
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${track.title} by ${track.artist}`}
+      accessibilityLabel={spokenLabel(`${track.title} by ${track.artist}`)}
       onPress={() => onPress(index)}
       onLongPress={onMore ? () => onMore(track, index) : undefined}
       delayLongPress={320}
@@ -142,7 +143,7 @@ function WideTrackRow({ track, index, onPress, onMore, leading = 'artwork', subt
         const active = !!(hovered || focused);
         return (
           <>
-            <WebPressable accessibilityRole="button" accessibilityLabel={`Play ${track.title}`} onPress={play} style={styles.wideLead}>
+            <WebPressable accessibilityRole="button" accessibilityLabel={leading !== 'artwork' && !hovered && !isCurrent ? `Play ${track.title}, track ${track.trackNumber ?? index + 1}` : `Play ${track.title}`} onPress={play} style={styles.wideLead}>
               {leading === 'artwork' ? (
                 <View>
                   <Artwork uri={track.artworkUri} label={track.album || track.title} size={40} recyclingKey={track.key} />

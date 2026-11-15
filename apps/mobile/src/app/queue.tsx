@@ -27,6 +27,7 @@ import { useWideRedirect } from '@/ui/desktop/redirect';
 import { removeFromQueueWithUndo } from '@/ui/actions';
 import { haptics } from '@/ui/haptics';
 import { makeStyles, space, TRACK_ROW_HEIGHT, useColors } from '@/ui/theme';
+import { spokenLabel } from '@/ui/a11y';
 
 const ROW_H = TRACK_ROW_HEIGHT;
 /** Dragging within this distance of the list's top or bottom edge scrolls it. */
@@ -298,7 +299,7 @@ const QueueRow = memo(function QueueRow({
           <Pressable
             style={styles.rowPress}
             accessibilityRole="button"
-            accessibilityLabel={`Play ${track.title} by ${track.artist}`}
+            accessibilityLabel={spokenLabel(`Play ${track.title} by ${track.artist}`)}
             accessibilityActions={[{ name: 'delete', label: 'Remove from queue' }]}
             onAccessibilityAction={(e) => {
               if (e.nativeEvent.actionName === 'delete') remove();

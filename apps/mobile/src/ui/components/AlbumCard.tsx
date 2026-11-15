@@ -7,6 +7,7 @@ import { makeStyles, radius, space } from '../theme';
 import { Artwork } from './Artwork';
 import { PressableScale } from './PressableScale';
 import { Text } from './Text';
+import { spokenLabel } from '../a11y';
 
 export type AlbumCardProps = {
   title: string;
@@ -27,7 +28,7 @@ function AlbumCardImpl({ title, subtitle, artworkUri, width, round, recyclingKey
   return (
     <PressableScale
       accessibilityRole="button"
-      accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
+      accessibilityLabel={spokenLabel(subtitle ? `${title}, ${subtitle}` : title)}
       onPress={onPress}
       onLongPress={onLongPress ? () => onLongPress() : undefined}
       onHoverIn={() => setHovered(true)}

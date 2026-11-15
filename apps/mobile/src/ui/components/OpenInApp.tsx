@@ -32,7 +32,7 @@ export function OpenInApp({ path }: { path: string }) {
     <View pointerEvents="box-none" style={[styles.host, { top: insets.top + space.sm }]}>
       <Pressable
         accessibilityRole="link"
-        accessibilityLabel="Open in the Blednify app"
+        accessibilityLabel="Open in app, Blednify"
         onPress={() => {
           window.location.href = href;
         }}

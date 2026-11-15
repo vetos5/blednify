@@ -34,6 +34,7 @@ import type { SheetAnchor } from '@/ui/overlay';
 import { useChromeInset , useGlassSurface } from '@/ui/chrome';
 import { useGutter, useIsWide } from '@/ui/layout';
 import { makeStyles, radius, space, useColors } from '@/ui/theme';
+import { spokenLabel } from '@/ui/a11y';
 
 function greeting(date = new Date()) {
   const h = date.getHours();
@@ -323,7 +324,7 @@ function QuickTile({
   return (
     <PressableScale
       accessibilityRole="button"
-      accessibilityLabel={title}
+      accessibilityLabel={spokenLabel(title)}
       onPress={onPress}
       onLongPress={onLongPress ? () => onLongPress() : undefined}
       onHoverIn={() => setHovered(true)}

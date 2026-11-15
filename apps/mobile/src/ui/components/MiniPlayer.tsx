@@ -8,6 +8,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { onProgress, player, usePlayer } from '@/core';
 
 import { ChromeDock, ChromeSurface, useChromeStyle } from '../chrome';
+import { spokenLabel } from '../a11y';
 import { haptics } from '../haptics';
 import { useIsWide } from '../layout';
 import { nav } from '../nav';
@@ -81,22 +82,26 @@ export function MiniPlayer() {
 
   const card = (
       <GestureDetector gesture={pan}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Now playing: ${current.title} by ${current.artist}. Open player`}
-          onPress={nav.player}
-          style={floating ? styles.pill : styles.card}>
-          <Animated.View style={[styles.content, contentStyle]}>
-            <Artwork uri={current.artworkUri} label={current.album || current.title} size={44} round={floating} recyclingKey={current.key} priority="high" />
-            <View style={styles.meta}>
-              <Text variant="bodyStrong" numberOfLines={1}>
-                {current.title}
-              </Text>
-              <Text variant="caption" numberOfLines={1}>
-                {current.artist}
-              </Text>
-            </View>
-          </Animated.View>
+        {/* The play and next buttons are siblings of the main button, not nested in it: a screen reader on web
+            can't reach a button inside a button. */}
+        <View style={floating ? styles.pill : styles.card}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={spokenLabel(`Now playing: ${current.title} by ${current.artist}. Open player`)}
+            onPress={nav.player}
+            style={styles.main}>
+            <Animated.View style={[styles.content, contentStyle]}>
+              <Artwork uri={current.artworkUri} label={current.album || current.title} size={44} round={floating} recyclingKey={current.key} priority="high" />
+              <View style={styles.meta}>
+                <Text variant="bodyStrong" numberOfLines={1}>
+                  {current.title}
+                </Text>
+                <Text variant="caption" numberOfLines={1}>
+                  {current.artist}
+                </Text>
+              </View>
+            </Animated.View>
+          </Pressable>
           {isBuffering && !isPlaying ? (
             <View style={styles.spinner}>
               <ActivityIndicator size="small" color={colors.text} />
@@ -106,7 +111,7 @@ export function MiniPlayer() {
           )}
           <IconButton icon="play-skip-forward" label="Next track" size={22} haptic onPress={player.next} />
           <MiniProgress inset={floating ? PILL_RADIUS : space.sm} />
-        </Pressable>
+        </View>
       </GestureDetector>
   );
   return (
@@ -184,6 +189,7 @@ const useStyles = makeStyles((colors) => ({
     borderRadius: PILL_RADIUS,
     overflow: 'hidden',
   },
+  main: { flex: 1, minWidth: 0, alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center' },
   content: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.md, minWidth: 0 },
   meta: { flex: 1, minWidth: 0 },
   spinner: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
