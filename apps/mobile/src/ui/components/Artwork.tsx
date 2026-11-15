@@ -62,6 +62,8 @@ export function Artwork({ uri, label, size, radius = radii.sm, round, fallbackIc
           transition={120}
           priority={priority}
           onError={() => setFailedUri(uri)}
+          // Decorative: the row or card around it carries the name. (expo-image web ignores `alt` on the loaded image.)
+          accessibilityLabel=""
           accessibilityIgnoresInvertColors
         />
       ) : (
@@ -88,6 +90,7 @@ export function ArtworkBackdrop({ uri, blurRadius, transition }: { uri: string |
       blurRadius={blurRadius}
       cachePolicy="memory-disk"
       transition={transition}
+      accessibilityLabel=""
     />
   );
 }
