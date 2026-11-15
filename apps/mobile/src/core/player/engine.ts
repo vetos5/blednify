@@ -2,15 +2,19 @@
  * Playback engine.
  *
  * One long-lived native `AudioPlaylist` (ExoPlayer playlist on Android, AVQueuePlayer on iOS) holds a
- * window over the JS queue: [previous?, current, up to WINDOW_AHEAD upcoming]. Native pre-buffers the
- * next track and transitions gaplessly, and lock-screen / notification next/previous work natively even
- * while JS is throttled. The JS queue (`entries`) stays authoritative.
+ * small window over the JS queue: [previous?, current, WINDOW_MIN..WINDOW_AHEAD upcoming]. Native
+ * pre-buffers the next track and transitions gaplessly, and lock-screen / notification next/previous work
+ * natively even while JS is throttled: when JS gets to run after an advance, native still holds at least
+ * WINDOW_MIN - 1 upcoming tracks. Each advance tops the window back up (`syncWindow`), a slot whose source
+ * changed (a download landed) is replaced on its own, and already-played slots are trimmed now and then.
+ * The JS queue (`entries`) stays authoritative.
  *
  * IMPORTANT (Android): expo-audio's Media3 lock-screen session does not see playlist edits made after
  * it was attached; the notification's MediaController then crashes the app with
  * "Invalid PlayerInfo update" on the next transition. So auto-advance never edits the native playlist,
  * and every edit goes through `editNative`, which detaches the session, edits, and re-attaches it.
- * Edits that would happen while the app is in the background are deferred (`windowDirty`).
+ * In the background only edits needed to keep playback going (topping up a window that is running low)
+ * are made; the rest wait for the foreground (`windowDirty`).
  */
 import {
   createAudioPlaylist,
@@ -95,8 +99,17 @@ let awaitingClear = false;
 let lockActive = false;
 /** The native upcoming window differs from the queue; re-sync when it is safe (foreground). */
 let windowDirty = false;
-/** Upcoming tracks kept in the native playlist after the current one. */
-const WINDOW_AHEAD = 200;
+/** Upcoming tracks the native playlist is filled up to after the current one. */
+const WINDOW_AHEAD = 5;
+/**
+ * Top up once fewer than this many upcoming tracks are left natively. With 5/3 the playlist is edited once every
+ * three songs, and native still has two songs queued when it advances before JS has had a chance to run.
+ */
+const WINDOW_MIN = 3;
+/** Played slots kept before the current one (native "previous"); more than TRIM_BEHIND are trimmed. */
+const KEEP_BEHIND = 1;
+/** Must stay above WINDOW_AHEAD (see `syncWindow`, stale status events). */
+const TRIM_BEHIND = 8;
 
 // --- Playback intent / bookkeeping -----------------------------------------------------------
 
@@ -300,49 +313,82 @@ function editNative(edit: (n: AudioPlaylist) => void) {
   if (reattach && cur) activateLockScreen(cur.track, true);
 }
 
-/** Upcoming playable entries that should follow the current one natively (no repeat-all wrap). */
-function desiredTail(): Entry[] {
-  const out: Entry[] = [];
+type Slot = { uid: number; src: Source; key: string };
+
+/** Upcoming playable entries that may follow the current one natively (no repeat-all wrap), up to WINDOW_AHEAD. */
+function desiredTail(): Slot[] {
+  const out: Slot[] = [];
   for (let i = index + 1; i < entries.length && out.length < WINDOW_AHEAD; i++) {
-    if (!sourceOf(entries[i].track)) break;
-    out.push(entries[i]);
+    const src = sourceOf(entries[i].track);
+    if (!src) break;
+    out.push({ uid: entries[i].uid, src, key: srcKey(src) });
   }
   return out;
 }
 
-/** Make the native slots after the current one equal the queue's upcoming entries. */
+/**
+ * Bring the native slots after the current one in line with the queue, with as few native calls as possible:
+ * a slot whose source changed (download landed, new server URL or token) is replaced in place, slots after the
+ * first entry that differs are removed and re-added, and the window is topped up to WINDOW_AHEAD once fewer than
+ * WINDOW_MIN upcoming tracks are left. A no-op when native already matches, the usual case after an advance.
+ */
 function syncWindow() {
   if (!nat || !natReady) return;
   // Native may have advanced before its event reached JS; catch up first.
   const live = nat.currentIndex;
   if (!advancingTo && live !== natCur && live >= 0 && live < natUids.length && nat.trackCount === natUids.length) onNativeIndex(live);
-  const want = desiredTail().flatMap((e) => {
-    const src = sourceOf(e.track);
-    return src ? [{ uid: e.uid, src }] : [];
-  });
+  if (!nat || !natReady) return;
   // After a JS-initiated skip native is already on `advancingTo.ci`, even though its event hasn't arrived yet.
   const curSlot = advancingTo?.ci ?? natCur;
+  if (curSlot < 0 || curSlot >= natUids.length) return;
+  const want = desiredTail();
   const haveUids = natUids.slice(curSlot + 1);
   const haveKeys = natUris.slice(curSlot + 1);
-  if (want.length === haveUids.length && want.every((w, k) => w.uid === haveUids[k] && srcKey(w.src) === haveKeys[k])) {
+  let same = 0;
+  while (same < want.length && same < haveUids.length && want[same].uid === haveUids[same]) same++;
+  const replace: number[] = [];
+  for (let k = 0; k < same; k++) if (want[k].key !== haveKeys[k]) replace.push(k);
+  const drop = haveUids.length - same;
+  const low = same < Math.min(want.length, WINDOW_MIN);
+  // Fill up whenever the playlist is edited anyway, so edits stay rare.
+  const add = low || drop > 0 || replace.length > 0 ? want.slice(same) : [];
+  if (!replace.length && !drop && !add.length) {
     windowDirty = false;
     return;
   }
-  if (lockActive && AppState.currentState !== 'active') {
+  // In the background, edit only when native is about to run out of the right songs (see header).
+  if (!low && lockActive && AppState.currentState !== 'active') {
     windowDirty = true;
     return;
   }
   windowDirty = false;
+  // Trimming shifts native indices. It is only done when it removes more slots than are added (TRIM_BEHIND >
+  // WINDOW_AHEAD), so no status event from before or during this edit has the final track count, and the
+  // `trackCount` check in `onStatus` drops all of them.
+  const trim = !advancingTo && curSlot > TRIM_BEHIND ? curSlot - KEEP_BEHIND : 0;
+  // Native first, then the JS mirror: events sent mid-edit (synchronously on web) see a count mismatch.
   editNative((n) => {
-    for (let i = natUids.length - 1; i > curSlot; i--) {
+    for (const k of replace) {
+      const slot = curSlot + 1 + k;
+      n.insert(want[k].src, slot);
+      natUris[slot] = want[k].key;
+      n.remove(slot + 1);
+    }
+    for (let i = natUids.length - 1; i > curSlot + same; i--) {
       n.remove(i);
       natUids.pop();
       natUris.pop();
     }
-    for (const w of want) {
+    for (const w of add) {
       n.add(w.src);
       natUids.push(w.uid);
-      natUris.push(srcKey(w.src));
+      natUris.push(w.key);
+    }
+    for (let k = 0; k < trim; k++) {
+      n.remove(0);
+      natUids.shift();
+      natUris.shift();
+      natCur--;
     }
   });
 }
@@ -394,12 +440,10 @@ function load(idx: number, play: boolean, positionMs = 0) {
   natUids.push(cur.uid);
   natUris.push(srcKey(src));
   natCur = natUids.length - 1;
-  for (const e of desiredTail()) {
-    const s2 = sourceOf(e.track);
-    if (!s2) break;
-    n.add(s2);
-    natUids.push(e.uid);
-    natUris.push(srcKey(s2));
+  for (const w of desiredTail()) {
+    n.add(w.src);
+    natUids.push(w.uid);
+    natUris.push(w.key);
   }
   n.skipTo(natCur);
   // The rebuilt window starts on the previous song's slot; ignore native until it lands on ours.
@@ -465,8 +509,8 @@ function onNativeIndex(ci: number) {
   }
   publishIndex();
   if (lockActive) nat?.updateLockScreenMetadata(metadataOf(t));
-  // Only touch the native playlist when it is out of date or about to run dry; never routinely.
-  if (windowDirty || (natCur >= natUids.length - 1 && index + 1 < entries.length)) syncWindow();
+  // Top up the window (a no-op until it runs low or is out of date).
+  syncWindow();
   armWatchdog();
 }
 

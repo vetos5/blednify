@@ -184,6 +184,17 @@ class WebPlaylist {
     this.scheduleAttach();
   }
 
+  insert(source: Source, i: number): void {
+    if (i < 0 || i > this.sources.length) return;
+    this.sources.splice(i, 0, source);
+    if (i <= this.index && this.sources.length > 1) {
+      this.index++;
+      if (this.loaded >= i) this.loaded++;
+    }
+    this.emit();
+    this.scheduleAttach();
+  }
+
   remove(i: number): void {
     if (i < 0 || i >= this.sources.length) return;
     this.sources.splice(i, 1);
