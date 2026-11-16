@@ -471,6 +471,32 @@ export function createAudioPlaylist(opts: { updateInterval?: number; loop?: Loop
   return p as unknown as AudioPlaylist;
 }
 
+export type EditSource = Source;
+export type PlaylistEdit =
+  | { op: 'clear' }
+  | { op: 'add'; source: EditSource }
+  | { op: 'insert'; index: number; source: EditSource }
+  | { op: 'remove'; index: number }
+  | { op: 'skipTo'; index: number };
+
+/** Same contract as the native version (audio.ts); the web playlist just applies the edits in order. */
+export function editPlaylist(p: AudioPlaylist, edits: PlaylistEdit[], metadata: AudioMetadata | null): void {
+  const w = p as unknown as WebPlaylist;
+  for (const e of edits) {
+    if (e.op === 'clear') w.clear();
+    else if (e.op === 'add') w.add(e.source);
+    else if (e.op === 'insert') w.insert(e.source, e.index);
+    else if (e.op === 'remove') w.remove(e.index);
+    else w.skipTo(e.index);
+  }
+  if (metadata) w.updateLockScreenMetadata(metadata);
+}
+
+/** Web media-session next/previous already go to the engine (see `setActiveForLockScreen`). */
+export function addRemoteSkipListener(_p: AudioPlaylist, _fn: (direction: 'next' | 'previous') => void): { remove(): void } {
+  return { remove: () => undefined };
+}
+
 /** Browsers have no audio session to configure. */
 export async function setAudioModeAsync(_mode: unknown): Promise<void> {}
 
