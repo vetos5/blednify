@@ -24,6 +24,7 @@ import { haptics } from '@/ui/haptics';
 import { goBack, nav, parseOrigin } from '@/ui/nav';
 import { showSheet, showToast, type SheetAnchor } from '@/ui/overlay';
 import { makeStyles, radius, space, useColors } from '@/ui/theme';
+import { useHeldDuringTransition } from '@/ui/transition';
 
 const onMore = (track: AppTrack, _i: number, anchor?: SheetAnchor) => openTrackActions(track, { hideAlbum: true, anchor });
 
@@ -34,7 +35,8 @@ export default function AlbumScreen() {
   const origin = parseOrigin(params.origin);
   const insets = useSafeAreaInsets();
   const chromeInset = useChromeInset('detail');
-  const { album, tracks, isLoading } = useAlbum(params.id, origin);
+  // What's cached draws on the first frame; anything fetched mid-slide waits until the push has finished.
+  const { album, tracks, isLoading } = useHeldDuringTransition(useAlbum(params.id, origin));
 
   // One tree for every state: the theme backdrop, chrome and back button mount once, so the album
   // arriving (often mid-transition on a first visit) only adds the list instead of rebuilding the screen.
