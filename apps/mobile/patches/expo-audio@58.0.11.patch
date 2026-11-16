@@ -1,5 +1,5 @@
 diff --git a/android/src/main/java/expo/modules/audio/AudioModule.kt b/android/src/main/java/expo/modules/audio/AudioModule.kt
-index 6c81fce3dd518d3b82e3280940a001c7be84dd0a..e97b623fe12e88e9a03e0a5e17459d683404298a 100644
+index 6c81fce3dd518d3b82e3280940a001c7be84dd0a..ad61fc8d157cb248e557aee33fc2a54859d365e0 100644
 --- a/android/src/main/java/expo/modules/audio/AudioModule.kt
 +++ b/android/src/main/java/expo/modules/audio/AudioModule.kt
 @@ -22,6 +22,8 @@ import androidx.media3.common.Player
@@ -75,6 +75,25 @@ index 6c81fce3dd518d3b82e3280940a001c7be84dd0a..e97b623fe12e88e9a03e0a5e17459d68
                val uri = uriString.toUri()
                when {
                  isRawResource(uri) -> {
+@@ -1059,6 +1093,18 @@ class AudioModule : Module() {
+         }
+       }
+ 
++      // Blednify patch: several playlist edits in ONE main-thread task, with the lock-screen session pointed away
++      // from the player while they run (see AudioPlaylist.editWindow).
++      Function("editWindow") { playlist: AudioPlaylist, ops: List<Int>, sources: List<AudioSource>, metadata: Metadata? ->
++        runOnMain {
++          playlist.editWindow(ops, sources, metadata)
++          if (playlist.trackCount == 0) {
++            playlist.isPaused = false
++            releaseAudioFocusIfUnused()
++          }
++        }
++      }
++
+       AsyncFunction("seekTo") { playlist: AudioPlaylist, seconds: Double ->
+         playlist.seekTo(seconds)
+       }.runOnQueue(Queues.MAIN)
 diff --git a/android/src/main/java/expo/modules/audio/AudioPlayer.kt b/android/src/main/java/expo/modules/audio/AudioPlayer.kt
 index fb2d0b57fb8718df04e5c073b70837b2658f2c16..fea841352cb878f941672b6c8eb70f1071923f50 100644
 --- a/android/src/main/java/expo/modules/audio/AudioPlayer.kt
@@ -98,10 +117,23 @@ index fb2d0b57fb8718df04e5c073b70837b2658f2c16..fea841352cb878f941672b6c8eb70f10
        serviceConnection.playbackServiceBinder?.service?.unregisterPlayable()
      }
 diff --git a/android/src/main/java/expo/modules/audio/AudioPlaylist.kt b/android/src/main/java/expo/modules/audio/AudioPlaylist.kt
-index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..94ea35743c1978c8dd9de1e5dfeb18c1bb4145a9 100644
+index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..9362b1a4083cb8b06161a7fae0d542d5824c7e8e 100644
 --- a/android/src/main/java/expo/modules/audio/AudioPlaylist.kt
 +++ b/android/src/main/java/expo/modules/audio/AudioPlaylist.kt
-@@ -107,11 +107,20 @@ class AudioPlaylist(
+@@ -16,6 +16,12 @@ import java.lang.ref.WeakReference
+ 
+ private const val PLAYLIST_STATUS_UPDATE = "playlistStatusUpdate"
+ private const val TRACK_CHANGED = "trackChanged"
++private const val REMOTE_SKIP = "remoteSkip"
++private const val EDIT_CLEAR = 0
++private const val EDIT_ADD = 1
++private const val EDIT_INSERT = 2
++private const val EDIT_REMOVE = 3
++private const val EDIT_SKIP_TO = 4
+ 
+ @UnstableApi
+ class AudioPlaylist(
+@@ -107,11 +113,20 @@ class AudioPlaylist(
    }
  
    override fun onPlayerError(error: PlaybackException) {
@@ -123,7 +155,52 @@ index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..94ea35743c1978c8dd9de1e5dfeb18c1
          )
        )
      )
-@@ -197,7 +206,7 @@ class AudioPlaylist(
+@@ -190,6 +205,44 @@ class AudioPlaylist(
+     )
+   }
+ 
++  /**
++   * Blednify patch: apply a batch of playlist edits. `ops` is a flat list of [op, index] pairs (EDIT_* above); add
++   * and insert take the next entry of `sources`. Media keys and notification buttons reach the player as tasks on
++   * the main looper, so running the whole batch in one main-thread task means none of them can land half way
++   * through it. While the lock screen is attached, the service points its session away from the player for the
++   * duration (the session must not observe edits) and back afterwards, in the same task, without releasing or
++   * creating any session (see AudioControlsService.editDetached). `metadata`, when given, becomes the lock-screen
++   * metadata.
++   */
++  fun editWindow(ops: List<Int>, sources: List<AudioSource>, metadata: Metadata?) {
++    val apply = {
++      var next = 0
++      var i = 0
++      while (i + 1 < ops.size) {
++        val index = ops[i + 1]
++        when (ops[i]) {
++          EDIT_CLEAR -> clear()
++          EDIT_ADD -> sources.getOrNull(next++)?.let { add(it) }
++          EDIT_INSERT -> sources.getOrNull(next++)?.let { insert(it, index) }
++          EDIT_REMOVE -> remove(index)
++          EDIT_SKIP_TO -> skipTo(index)
++        }
++        i += 2
++      }
++    }
++    if (metadata != null && isActiveForLockScreen) this.metadata = metadata
++    val service = if (isActiveForLockScreen) serviceConnection.playbackServiceBinder?.service else null
++    if (service == null || !service.editDetached(this, metadata, apply)) apply()
++  }
++
++  /**
++   * Blednify patch: a skip from the lock screen, notification or a media key that the native window can't serve
++   * (no next/previous item loaded). JS owns the queue, so it takes the skip from here instead of it being dropped.
++   */
++  fun requestRemoteSkip(direction: String) {
++    emit(REMOTE_SKIP, mapOf("direction" to direction))
++  }
++
+   override fun setPlaybackRate(rate: Float) {
+     val boundedRate = rate.coerceIn(0.1f, 2.0f)
+     currentRate = boundedRate
+@@ -197,7 +250,7 @@ class AudioPlaylist(
    }
  
    override fun assignBasicMediaSession() {
@@ -132,7 +209,7 @@ index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..94ea35743c1978c8dd9de1e5dfeb18c1
      mediaSession = buildBasicMediaSession(appContext?.reactContext ?: return, ref) { requestPlay() }
    }
  
-@@ -249,7 +258,7 @@ class AudioPlaylist(
+@@ -249,7 +302,7 @@ class AudioPlaylist(
  
    override fun releasePlayer() {
      serviceConnection.release()
@@ -159,10 +236,10 @@ index 81819c1d771bdeec093bb35a65a5e1e1af0cf9d7..228797c3ef0ac156463863c7393a54b0
 +  if (session !is androidx.media3.session.MediaLibraryService.MediaLibrarySession) session.release()
 +}
 diff --git a/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt b/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
-index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f308eca172c 100644
+index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..b67611de6392c732e5cb99ee0393b0a8cba89666 100644
 --- a/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
 +++ b/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
-@@ -13,14 +13,16 @@ import android.graphics.BitmapFactory
+@@ -13,21 +13,25 @@ import android.graphics.BitmapFactory
  import android.os.Build
  import android.os.Bundle
  import android.os.IBinder
@@ -180,7 +257,8 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
  import androidx.media3.session.MediaStyleNotificationHelper
  import androidx.media3.session.SessionCommand
  import expo.modules.audio.AudioLockScreenOptions
-@@ -28,6 +30,7 @@ import expo.modules.audio.LockScreenPlayable
++import expo.modules.audio.AudioPlaylist
+ import expo.modules.audio.LockScreenPlayable
  import expo.modules.audio.Metadata
  import expo.modules.audio.PlayRequestingPlayer
  import expo.modules.audio.getPlaybackServiceErrorMessage
@@ -188,7 +266,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
  import expo.modules.kotlin.AppContext
  import kotlinx.coroutines.CoroutineScope
  import kotlinx.coroutines.Dispatchers
-@@ -39,10 +42,17 @@ import java.lang.ref.WeakReference
+@@ -39,10 +43,17 @@ import java.lang.ref.WeakReference
  import java.net.URL
  
  @OptIn(UnstableApi::class)
@@ -207,7 +285,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
    private var sessionMetadataPlayer: MetadataInjectingPlayer? = null
    private var currentMetadata: Metadata? = null
    private var currentPlayable: LockScreenPlayable? = null
-@@ -51,8 +61,30 @@ class AudioControlsService : MediaSessionService() {
+@@ -51,8 +62,30 @@ class AudioControlsService : MediaSessionService() {
    private var currentArtworkUrl: URL? = null
    private var currentArtwork: Bitmap? = null
    private var artworkLoadJob: Job? = null
@@ -240,7 +318,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
  
    private var weakContext: WeakReference<AppContext>? = null
    var appContext: AppContext?
-@@ -71,7 +103,9 @@ class AudioControlsService : MediaSessionService() {
+@@ -71,7 +104,9 @@ class AudioControlsService : MediaSessionService() {
      val currentPlayer = playable?.player
      val context = appContext
      if (playable == null || currentPlayer == null || context == null) {
@@ -251,7 +329,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
        return super.onStartCommand(intent, flags, startId)
      }
  
-@@ -102,7 +136,7 @@ class AudioControlsService : MediaSessionService() {
+@@ -102,7 +137,7 @@ class AudioControlsService : MediaSessionService() {
    }
  
    private fun ensureForegroundNotification() {
@@ -260,7 +338,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
      try {
        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
          startForeground(
-@@ -134,6 +168,44 @@ class AudioControlsService : MediaSessionService() {
+@@ -134,6 +169,70 @@ class AudioControlsService : MediaSessionService() {
      super.onCreate()
      audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
      createNotificationChannelIfNeeded()
@@ -294,6 +372,32 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
 +    AutoLibrary.clearPlayRequest()
 +  }
 +
++  /**
++   * Blednify patch: run `edit` (playlist edits) with the session pointed at the idle player, then point it back at
++   * `playable`, all in the caller's main-thread task. Unlike clearLockScreenControls + setActiveForLockScreen this
++   * keeps the playable attached: no basic MediaSession is created and released (which made the platform forget
++   * its media-button session, so the next media key went astray), the foreground service is untouched, and as
++   * session commands run on the main looper, none can reach the idle player and be refused in between.
++   * Returns false (and does nothing) when `playable` is not the attached one or this is not the main thread.
++   */
++  fun editDetached(playable: LockScreenPlayable, metadata: Metadata?, edit: () -> Unit): Boolean {
++    if (playable !== currentPlayable || !::librarySession.isInitialized) return false
++    if (Looper.myLooper() != Looper.getMainLooper()) return false
++    librarySession.player = idlePlayer
++    try {
++      edit()
++    } finally {
++      if (metadata != null && metadata != currentMetadata) {
++        currentMetadata = metadata
++        updateArtwork(metadata, postUpdate = false)
++      }
++      attachSessionPlayer(playable, currentMetadata, currentOptions)
++      updateSessionCustomLayout(playable.player.isPlaying)
++      postOrStartForegroundNotification(startInForeground = false)
++    }
++    return true
++  }
++
 +  private fun detachSessionPlayer() {
 +    val apply = {
 +      if (::librarySession.isInitialized) {
@@ -305,7 +409,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
    }
  
    private fun shouldPlayInSilentMode(): Boolean {
-@@ -176,6 +248,7 @@ class AudioControlsService : MediaSessionService() {
+@@ -176,6 +275,7 @@ class AudioControlsService : MediaSessionService() {
    }
  
    private fun buildNotification(): Notification? {
@@ -313,7 +417,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
      val session = mediaSession ?: return null
  
      val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-@@ -291,15 +364,13 @@ class AudioControlsService : MediaSessionService() {
+@@ -291,15 +391,13 @@ class AudioControlsService : MediaSessionService() {
  
      val playable = currentPlayable
  
@@ -335,7 +439,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
      } else if (currentOptions?.showSeekBackward == true) {
        val backwardSeconds = seekIntervalMs(currentOptions?.seekBackwardIntervalSeconds) / 1000.0
        mediaButtons.add(
-@@ -334,14 +405,7 @@ class AudioControlsService : MediaSessionService() {
+@@ -334,14 +432,7 @@ class AudioControlsService : MediaSessionService() {
      )
  
      if (currentOptions?.showNextTrack == true && playable?.supportsNextTrack == true) {
@@ -351,7 +455,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
      } else if (currentOptions?.showSeekForward == true) {
        val forwardSeconds = seekIntervalMs(currentOptions?.seekForwardIntervalSeconds) / 1000.0
        mediaButtons.add(
-@@ -373,6 +437,7 @@ class AudioControlsService : MediaSessionService() {
+@@ -373,6 +464,7 @@ class AudioControlsService : MediaSessionService() {
    private fun postOrStartForegroundNotificationNow(startInForeground: Boolean) {
      val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
      val notification = buildNotification() ?: return
@@ -359,7 +463,15 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
  
      if (startInForeground) {
        try {
-@@ -436,7 +501,11 @@ class AudioControlsService : MediaSessionService() {
+@@ -405,6 +497,7 @@ class AudioControlsService : MediaSessionService() {
+     val isLive = options?.isLiveStream ?: playable.isLive
+     val forwardMs = seekIntervalMs(options?.seekForwardIntervalSeconds)
+     val backwardMs = seekIntervalMs(options?.seekBackwardIntervalSeconds)
++    if (playable is AudioPlaylist) return PlaylistSessionPlayer(player, playable, forwardMs, backwardMs, isLive)
+ 
+     return object : ForwardingPlayer(player) {
+       override fun getSeekForwardIncrement(): Long = forwardMs
+@@ -436,7 +529,11 @@ class AudioControlsService : MediaSessionService() {
    ) {
      removePlayerListener()
      currentPlayable?.isActiveForLockScreen = false
@@ -372,7 +484,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
  
      currentPlayable = playable
      currentMetadata = metadata
-@@ -446,29 +515,9 @@ class AudioControlsService : MediaSessionService() {
+@@ -446,29 +543,9 @@ class AudioControlsService : MediaSessionService() {
      playable?.isActiveForLockScreen = true
  
      if (playable != null) {
@@ -404,7 +516,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
  
          updateSessionCustomLayout(playable.player.isPlaying)
  
-@@ -498,17 +547,17 @@ class AudioControlsService : MediaSessionService() {
+@@ -498,17 +575,17 @@ class AudioControlsService : MediaSessionService() {
      playable?.isActiveForLockScreen = false
      removePlayerListener()
      currentMetadata = null
@@ -426,7 +538,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
    }
  
    override fun onBind(intent: Intent?): IBinder {
-@@ -530,24 +579,9 @@ class AudioControlsService : MediaSessionService() {
+@@ -530,24 +607,9 @@ class AudioControlsService : MediaSessionService() {
        currentOptions = options
        updateArtwork(metadata, postUpdate = false)
  
@@ -453,7 +565,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
  
          updateSessionCustomLayout(playable.player.isPlaying)
          postOrStartForegroundNotification(startInForeground = false)
-@@ -644,12 +678,14 @@ class AudioControlsService : MediaSessionService() {
+@@ -644,12 +706,14 @@ class AudioControlsService : MediaSessionService() {
    }
  
    override fun onDestroy() {
@@ -469,7 +581,7 @@ index 53c36f7e3c0a0bcb8b4de1f5e6d2d3e214d3fbf2..dfe36b25f50ac9aeca6fe0f0c6e35f30
      mediaSession = null
      sessionMetadataPlayer = null
      currentPlayable = null
-@@ -685,6 +721,8 @@ class AudioControlsService : MediaSessionService() {
+@@ -685,6 +749,8 @@ class AudioControlsService : MediaSessionService() {
  
    companion object {
      private const val CHANNEL_ID = "expo_audio_channel"
@@ -967,5 +1079,114 @@ index 0000000000000000000000000000000000000000..d23caa7836581a40f516e83dc8978c03
 +  override fun setPlayWhenReady(playWhenReady: Boolean) {
 +    if (playWhenReady && AutoLibrary.isPlayRequestPending()) return
 +    super.setPlayWhenReady(playWhenReady)
++  }
++}
+diff --git a/android/src/main/java/expo/modules/audio/service/PlaylistSessionPlayer.kt b/android/src/main/java/expo/modules/audio/service/PlaylistSessionPlayer.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..65bbbaafd9b5dcd37d09655600a08e64839e3890
+--- /dev/null
++++ b/android/src/main/java/expo/modules/audio/service/PlaylistSessionPlayer.kt
+@@ -0,0 +1,103 @@
++package expo.modules.audio.service
++
++import androidx.media3.common.ForwardingPlayer
++import androidx.media3.common.Player
++import androidx.media3.common.util.UnstableApi
++import expo.modules.audio.AudioPlaylist
++import java.util.IdentityHashMap
++
++/**
++ * Blednify patch: the session player for a playlist. JS keeps only a small window of the queue in the native
++ * playlist, so "next" on the last loaded item (or "previous" on the first) is not the end of the queue. Those
++ * skips are always offered and, when the window can't serve them, handed to JS (`remoteSkip` event) instead of
++ * being refused. Skips the window can serve stay native, so they work without waiting for JS.
++ */
++@UnstableApi
++internal class PlaylistSessionPlayer(
++  player: Player,
++  private val playlist: AudioPlaylist,
++  private val forwardMs: Long,
++  private val backwardMs: Long,
++  private val isLive: Boolean
++) : ForwardingPlayer(player) {
++  private val listeners = IdentityHashMap<Player.Listener, Player.Listener>()
++
++  override fun getSeekForwardIncrement(): Long = forwardMs
++
++  override fun getSeekBackIncrement(): Long = backwardMs
++
++  override fun seekForward() {
++    seekTo(currentPosition + forwardMs)
++  }
++
++  override fun seekBack() {
++    seekTo((currentPosition - backwardMs).coerceAtLeast(0))
++  }
++
++  override fun getAvailableCommands(): Player.Commands {
++    val commands = super.getAvailableCommands().buildUpon()
++    if (isLive) {
++      commands.remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
++    }
++    if (mediaItemCount > 0) {
++      commands.addAll(
++        Player.COMMAND_SEEK_TO_NEXT,
++        Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
++        Player.COMMAND_SEEK_TO_PREVIOUS,
++        Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM
++      )
++    }
++    return commands.build()
++  }
++
++  override fun isCommandAvailable(command: Int): Boolean = availableCommands.contains(command)
++
++  override fun seekToNext() {
++    if (hasNextMediaItem()) super.seekToNext() else playlist.requestRemoteSkip("next")
++  }
++
++  override fun seekToNextMediaItem() {
++    if (hasNextMediaItem()) super.seekToNextMediaItem() else playlist.requestRemoteSkip("next")
++  }
++
++  override fun seekToPrevious() {
++    // Past the restart threshold "previous" restarts the song, which native can always do.
++    if (hasPreviousMediaItem() || currentPosition > maxSeekToPreviousPosition) {
++      super.seekToPrevious()
++    } else {
++      playlist.requestRemoteSkip("previous")
++    }
++  }
++
++  override fun seekToPreviousMediaItem() {
++    if (hasPreviousMediaItem()) super.seekToPreviousMediaItem() else playlist.requestRemoteSkip("previous")
++  }
++
++  // The wrapped player reports its own command set in onAvailableCommandsChanged; report ours, so the session
++  // and its controllers keep next/previous enabled.
++  override fun addListener(listener: Player.Listener) {
++    val forwarding = synchronized(listeners) {
++      listeners.getOrPut(listener) { CommandsForwardingListener(listener) }
++    }
++    super.addListener(forwarding)
++  }
++
++  override fun removeListener(listener: Player.Listener) {
++    val forwarding = synchronized(listeners) {
++      listeners.remove(listener)
++    }
++    super.removeListener(forwarding ?: listener)
++  }
++
++  private inner class CommandsForwardingListener(
++    private val listener: Player.Listener
++  ) : Player.Listener by listener {
++    override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
++      listener.onAvailableCommandsChanged(this@PlaylistSessionPlayer.availableCommands)
++    }
++
++    override fun onEvents(player: Player, events: Player.Events) {
++      listener.onEvents(this@PlaylistSessionPlayer, events)
++    }
 +  }
 +}

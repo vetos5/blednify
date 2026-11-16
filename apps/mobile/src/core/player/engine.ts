@@ -9,20 +9,28 @@
  * changed (a download landed) is replaced on its own, and already-played slots are trimmed now and then.
  * The JS queue (`entries`) stays authoritative.
  *
- * IMPORTANT (Android): expo-audio's Media3 lock-screen session does not see playlist edits made after
- * it was attached; the notification's MediaController then crashes the app with
- * "Invalid PlayerInfo update" on the next transition. So auto-advance never edits the native playlist,
- * and every edit goes through `editNative`, which detaches the session, edits, and re-attaches it.
+ * IMPORTANT (Android): expo-audio's Media3 lock-screen session must not observe playlist edits (the
+ * notification's MediaController then crashed the app with "Invalid PlayerInfo update"). So auto-advance never
+ * edits the native playlist, and every edit is one `editPlaylist` call: the patched native side points the
+ * session away from the player, applies all edits and points it back, in a single main-thread task. Media keys
+ * and notification buttons are main-thread tasks too, so none can land mid-edit and be refused, and the session
+ * itself is never torn down (doing that per edit dropped or misrouted lock-screen "next" presses).
  * In the background only edits needed to keep playback going (topping up a window that is running low)
  * are made; the rest wait for the foreground (`windowDirty`).
+ *
+ * Skips native can't serve itself (next on the last loaded slot, previous on the first) come back as a
+ * `remoteSkip` event and are handled like the in-app buttons.
  */
 import {
+  addRemoteSkipListener,
   createAudioPlaylist,
+  editPlaylist,
   requestNotificationPermissionsAsync,
   setAudioModeAsync,
   type AudioMetadata,
   type AudioPlaylist,
   type AudioPlaylistStatus,
+  type PlaylistEdit,
 } from './audio';
 import { addNetworkStateListener } from 'expo-network';
 import { AppState, Platform } from 'react-native';
@@ -88,6 +96,7 @@ let index = -1;
 
 let nat: AudioPlaylist | null = null;
 let natSub: { remove(): void } | null = null;
+let natSkipSub: { remove(): void } | null = null;
 /** Entry uid and loaded URI per native slot (URIs change when a download lands or the server moves). */
 let natUids: number[] = [];
 let natUris: string[] = [];
@@ -253,6 +262,8 @@ function destroyNative() {
   const old = nat;
   natSub?.remove();
   natSub = null;
+  natSkipSub?.remove();
+  natSkipSub = null;
   nat = null;
   natReady = false;
   lockActive = false;
@@ -268,6 +279,7 @@ function createNative(): AudioPlaylist {
   destroyNative();
   const p = createAudioPlaylist({ updateInterval: UPDATE_INTERVAL_MS, loop: 'none' });
   natSub = p.addListener('playlistStatusUpdate', onStatus);
+  natSkipSub = addRemoteSkipListener(p, (direction) => (direction === 'next' ? player.next() : player.previous()));
   nat = p;
   natUids = [];
   natUris = [];
@@ -307,17 +319,30 @@ function activateLockScreen(t: AppTrack, force = false) {
   lockActive = true;
 }
 
-/** Run a native playlist edit with the lock-screen session detached (see header), then re-attach it. */
-function editNative(edit: (n: AudioPlaylist) => void) {
-  if (!nat) return;
-  const reattach = lockActive;
-  if (reattach) {
-    nat.clearLockScreenControls();
-    lockActive = false;
-  }
-  edit(nat);
+/**
+ * Apply native playlist edits in one call (see header). The lock-screen session stays attached; its metadata is
+ * refreshed to the current entry. Update the JS mirror (`natUids`/`natUris`/`natCur`) BEFORE calling this: on web,
+ * status events fire synchronously mid-edit, and the track-count check in `onStatus` must already see the final
+ * count to drop them.
+ */
+function editNative(edits: PlaylistEdit[]) {
+  if (!nat || !edits.length) return;
   const cur = entries[index];
-  if (reattach && cur) activateLockScreen(cur.track, true);
+  editPlaylist(nat, edits, lockActive && cur ? metadataOf(cur.track) : null);
+}
+
+/**
+ * Bring JS up to date with the slot native is on right now. Native moves on its own (auto-advance, lock-screen /
+ * media-key skips) and its status events reach JS later, so a decision based on `natCur` alone can be one press
+ * behind. Also drops `advancingTo` when native has moved past the slot a JS skip was waiting for.
+ */
+function catchUpNative() {
+  if (!nat || !natReady || natBroken) return;
+  if (nat.trackCount !== natUids.length) return;
+  const live = nat.currentIndex;
+  if (live < 0 || live >= natUids.length || live === (advancingTo?.ci ?? natCur)) return;
+  advancingTo = null;
+  onNativeIndex(live);
 }
 
 type Slot = { uid: number; src: Source; key: string };
@@ -342,8 +367,7 @@ function desiredTail(): Slot[] {
 function syncWindow() {
   if (!nat || !natReady) return;
   // Native may have advanced before its event reached JS; catch up first.
-  const live = nat.currentIndex;
-  if (!advancingTo && live !== natCur && live >= 0 && live < natUids.length && nat.trackCount === natUids.length) onNativeIndex(live);
+  catchUpNative();
   if (!nat || !natReady) return;
   // After a JS-initiated skip native is already on `advancingTo.ci`, even though its event hasn't arrived yet.
   const curSlot = advancingTo?.ci ?? natCur;
@@ -373,31 +397,30 @@ function syncWindow() {
   // WINDOW_AHEAD), so no status event from before or during this edit has the final track count, and the
   // `trackCount` check in `onStatus` drops all of them.
   const trim = !advancingTo && curSlot > TRIM_BEHIND ? curSlot - KEEP_BEHIND : 0;
-  // Native first, then the JS mirror: events sent mid-edit (synchronously on web) see a count mismatch.
-  editNative((n) => {
-    for (const k of replace) {
-      const slot = curSlot + 1 + k;
-      n.insert(want[k].src, slot);
-      natUris[slot] = want[k].key;
-      n.remove(slot + 1);
-    }
-    for (let i = natUids.length - 1; i > curSlot + same; i--) {
-      n.remove(i);
-      natUids.pop();
-      natUris.pop();
-    }
-    for (const w of add) {
-      n.add(w.src);
-      natUids.push(w.uid);
-      natUris.push(w.key);
-    }
-    for (let k = 0; k < trim; k++) {
-      n.remove(0);
-      natUids.shift();
-      natUris.shift();
-      natCur--;
-    }
-  });
+  // The JS mirror first, then native in one call (see `editNative`).
+  const edits: PlaylistEdit[] = [];
+  for (const k of replace) {
+    const slot = curSlot + 1 + k;
+    edits.push({ op: 'insert', index: slot, source: want[k].src }, { op: 'remove', index: slot + 1 });
+    natUris[slot] = want[k].key;
+  }
+  for (let i = natUids.length - 1; i > curSlot + same; i--) {
+    edits.push({ op: 'remove', index: i });
+    natUids.pop();
+    natUris.pop();
+  }
+  for (const w of add) {
+    edits.push({ op: 'add', source: w.src });
+    natUids.push(w.uid);
+    natUris.push(w.key);
+  }
+  for (let k = 0; k < trim; k++) {
+    edits.push({ op: 'remove', index: 0 });
+    natUids.shift();
+    natUris.shift();
+    natCur--;
+  }
+  editNative(edits);
 }
 
 /**
@@ -427,36 +450,33 @@ function load(idx: number, play: boolean, positionMs = 0) {
   }
 
   const n = !nat || natBroken ? createNative() : nat;
-  const reattach = lockActive;
-  if (reattach) {
-    n.clearLockScreenControls();
-    lockActive = false;
-  }
-  awaitingClear = true;
-  n.clear();
+  // One native call (see `editNative`); the JS mirror is set first.
+  const edits: PlaylistEdit[] = [{ op: 'clear' }];
   natUids = [];
   natUris = [];
   const prev = entries[idx - 1];
   const prevSrc = prev ? sourceOf(prev.track) : null;
   if (prev && prevSrc) {
-    n.add(prevSrc);
+    edits.push({ op: 'add', source: prevSrc });
     natUids.push(prev.uid);
     natUris.push(srcKey(prevSrc));
   }
-  n.add(src);
+  edits.push({ op: 'add', source: src });
   natUids.push(cur.uid);
   natUris.push(srcKey(src));
   natCur = natUids.length - 1;
   for (const w of desiredTail()) {
-    n.add(w.src);
+    edits.push({ op: 'add', source: w.src });
     natUids.push(w.uid);
     natUris.push(w.key);
   }
-  n.skipTo(natCur);
+  edits.push({ op: 'skipTo', index: natCur });
   // The rebuilt window starts on the previous song's slot; ignore native until it lands on ours.
   advancingTo = { ci: natCur, until: Date.now() + 2_000 };
   natReady = true;
   windowDirty = false;
+  awaitingClear = true;
+  editNative(edits);
 
   pendingSeekMs = positionMs > 0 ? positionMs : null;
   if (pendingSeekMs !== null) guardSeek(pendingSeekMs);
@@ -467,11 +487,10 @@ function load(idx: number, play: boolean, positionMs = 0) {
   }
   publishIndex({ isPlaying: play, isBuffering: play });
   if (play) {
-    activateLockScreen(cur.track);
+    // Attached already: `editNative` refreshed its metadata.
+    if (!lockActive) activateLockScreen(cur.track);
     if (pendingSeekMs === null) startNative();
     armWatchdog();
-  } else if (reattach) {
-    activateLockScreen(cur.track, true);
   }
 }
 
@@ -539,8 +558,11 @@ function onStatus(s: NativeStatus) {
   }
 
   if (s.currentIndex !== natCur && s.currentIndex >= 0 && s.currentIndex < natUids.length) {
-    onNativeIndex(s.currentIndex);
+    // Act on where native is now, not on this event: it may predate later skips (a burst of media-key presses),
+    // and taking its slot would move JS back a song.
+    catchUpNative();
     if (awaitingClear || !natReady) return; // a reload happened; this event is stale now
+    if (s.currentIndex !== natCur) return; // stale: its position and state describe another slot
   }
 
   if (s.error) {
@@ -951,6 +973,8 @@ function seekTo(ms: number) {
 }
 
 function next() {
+  // A lock-screen / media-key skip JS hasn't heard about yet must count, not be overwritten by this one.
+  catchUpNative();
   const ni = nextIndex();
   if (ni === null) {
     if (entries.length) {
@@ -960,10 +984,12 @@ function next() {
     return;
   }
   const playing = isActive();
-  if (nat && natReady && !natBroken && natUids[natCur + 1] === entries[ni].uid && nat.trackCount === natUids.length) {
+  // After a JS skip whose event hasn't arrived yet, native is already on `advancingTo.ci`.
+  const slot = advancingTo?.ci ?? natCur;
+  if (nat && natReady && !natBroken && natUids[slot + 1] === entries[ni].uid && nat.trackCount === natUids.length) {
     // Already pre-buffered natively: let native advance; `onNativeIndex` finalizes state.
     index = ni;
-    advancingTo = { ci: natCur + 1, until: Date.now() + 2_000 };
+    advancingTo = { ci: slot + 1, until: Date.now() + 2_000 };
     nat.next();
     resetTrackCounters();
     lastCommandAt = Date.now();
