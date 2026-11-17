@@ -1086,9 +1086,152 @@ index 0000000000000000000000000000000000000000..d23caa7836581a40f516e83dc8978c03
 +    super.setPlayWhenReady(playWhenReady)
 +  }
 +}
+diff --git a/android/src/main/java/expo/modules/audio/service/DelegatingPlayerListener.kt b/android/src/main/java/expo/modules/audio/service/DelegatingPlayerListener.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..7ad534f26fec0bab869178b71f3bc04754495351
+--- /dev/null
++++ b/android/src/main/java/expo/modules/audio/service/DelegatingPlayerListener.kt
+@@ -0,0 +1,102 @@
++package expo.modules.audio.service
++
++import androidx.media3.common.AudioAttributes
++import androidx.media3.common.DeviceInfo
++import androidx.media3.common.MediaItem
++import androidx.media3.common.MediaMetadata
++import androidx.media3.common.PlaybackException
++import androidx.media3.common.PlaybackParameters
++import androidx.media3.common.Player
++import androidx.media3.common.Timeline
++import androidx.media3.common.TrackSelectionParameters
++import androidx.media3.common.Tracks
++import androidx.media3.common.VideoSize
++import androidx.media3.common.text.Cue
++import androidx.media3.common.text.CueGroup
++import androidx.media3.common.util.UnstableApi
++import androidx.media3.common.Metadata as Media3Metadata
++
++/**
++ * Blednify patch: forwards EVERY Player.Listener callback to `listener`. Kotlin's `Player.Listener by listener`
++ * delegation does not forward Java default methods, and all Player.Listener methods are defaults, so wrappers
++ * written that way passed on only what they overrode. The media session never heard onTimelineChanged,
++ * onPlaybackStateChanged, onIsPlayingChanged, … and reported a stale state with an unknown duration, so
++ * the system media controls showed no seek bar.
++ *
++ * Equal to any other wrapper of the same `owner` and `listener`, like Media3's own ForwardingPlayer listener, so
++ * a removeListener() call reaching a wrapper through a fresh ForwardingPlayer wrapper still finds it.
++ */
++@UnstableApi
++internal open class DelegatingPlayerListener(
++  private val owner: Any,
++  protected val listener: Player.Listener
++) : Player.Listener {
++  override fun equals(other: Any?): Boolean =
++    other is DelegatingPlayerListener && other.owner === owner && other.listener == listener
++
++  override fun hashCode(): Int = 31 * System.identityHashCode(owner) + listener.hashCode()
++
++  override fun onEvents(player: Player, events: Player.Events) = listener.onEvents(player, events)
++  override fun onTimelineChanged(timeline: Timeline, reason: Int) = listener.onTimelineChanged(timeline, reason)
++  override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = listener.onMediaItemTransition(mediaItem, reason)
++  override fun onTracksChanged(tracks: Tracks) = listener.onTracksChanged(tracks)
++  override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) = listener.onMediaMetadataChanged(mediaMetadata)
++  override fun onPlaylistMetadataChanged(mediaMetadata: MediaMetadata) = listener.onPlaylistMetadataChanged(mediaMetadata)
++  override fun onIsLoadingChanged(isLoading: Boolean) = listener.onIsLoadingChanged(isLoading)
++
++  @Deprecated("Deprecated in Media3")
++  @Suppress("DEPRECATION")
++  override fun onLoadingChanged(isLoading: Boolean) = listener.onLoadingChanged(isLoading)
++
++  override fun onAvailableCommandsChanged(availableCommands: Player.Commands) =
++    listener.onAvailableCommandsChanged(availableCommands)
++
++  override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) =
++    listener.onTrackSelectionParametersChanged(parameters)
++
++  @Deprecated("Deprecated in Media3")
++  @Suppress("DEPRECATION")
++  override fun onPlayerStateChanged(playWhenReady: Boolean, playbackState: Int) =
++    listener.onPlayerStateChanged(playWhenReady, playbackState)
++
++  override fun onPlaybackStateChanged(playbackState: Int) = listener.onPlaybackStateChanged(playbackState)
++  override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = listener.onPlayWhenReadyChanged(playWhenReady, reason)
++  override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) =
++    listener.onPlaybackSuppressionReasonChanged(playbackSuppressionReason)
++  override fun onIsPlayingChanged(isPlaying: Boolean) = listener.onIsPlayingChanged(isPlaying)
++  override fun onRepeatModeChanged(repeatMode: Int) = listener.onRepeatModeChanged(repeatMode)
++  override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = listener.onShuffleModeEnabledChanged(shuffleModeEnabled)
++  override fun onPlayerError(error: PlaybackException) = listener.onPlayerError(error)
++  override fun onPlayerErrorChanged(error: PlaybackException?) = listener.onPlayerErrorChanged(error)
++
++  @Deprecated("Deprecated in Media3")
++  @Suppress("DEPRECATION")
++  override fun onPositionDiscontinuity(reason: Int) = listener.onPositionDiscontinuity(reason)
++
++  override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) =
++    listener.onPositionDiscontinuity(oldPosition, newPosition, reason)
++
++  override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) =
++    listener.onPlaybackParametersChanged(playbackParameters)
++  override fun onSeekBackIncrementChanged(seekBackIncrementMs: Long) = listener.onSeekBackIncrementChanged(seekBackIncrementMs)
++  override fun onSeekForwardIncrementChanged(seekForwardIncrementMs: Long) =
++    listener.onSeekForwardIncrementChanged(seekForwardIncrementMs)
++  override fun onMaxSeekToPreviousPositionChanged(maxSeekToPreviousPositionMs: Long) =
++    listener.onMaxSeekToPreviousPositionChanged(maxSeekToPreviousPositionMs)
++  override fun onAudioSessionIdChanged(audioSessionId: Int) = listener.onAudioSessionIdChanged(audioSessionId)
++  override fun onAudioAttributesChanged(audioAttributes: AudioAttributes) = listener.onAudioAttributesChanged(audioAttributes)
++  override fun onVolumeChanged(volume: Float) = listener.onVolumeChanged(volume)
++  override fun onSkipSilenceEnabledChanged(skipSilenceEnabled: Boolean) = listener.onSkipSilenceEnabledChanged(skipSilenceEnabled)
++  override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) = listener.onDeviceInfoChanged(deviceInfo)
++  override fun onDeviceVolumeChanged(volume: Int, muted: Boolean) = listener.onDeviceVolumeChanged(volume, muted)
++  override fun onVideoSizeChanged(videoSize: VideoSize) = listener.onVideoSizeChanged(videoSize)
++  override fun onSurfaceSizeChanged(width: Int, height: Int) = listener.onSurfaceSizeChanged(width, height)
++  override fun onRenderedFirstFrame() = listener.onRenderedFirstFrame()
++
++  @Deprecated("Deprecated in Media3")
++  @Suppress("DEPRECATION")
++  override fun onCues(cues: List<Cue>) = listener.onCues(cues)
++
++  override fun onCues(cueGroup: CueGroup) = listener.onCues(cueGroup)
++  override fun onMetadata(metadata: Media3Metadata) = listener.onMetadata(metadata)
++}
+diff --git a/android/src/main/java/expo/modules/audio/service/MetadataInjectingPlayer.kt b/android/src/main/java/expo/modules/audio/service/MetadataInjectingPlayer.kt
+index 18203a364d17dcf3de95d22a20175308e3363889..795fa6f44027e28d1670badeeb0eca39972031c7 100644
+--- a/android/src/main/java/expo/modules/audio/service/MetadataInjectingPlayer.kt
++++ b/android/src/main/java/expo/modules/audio/service/MetadataInjectingPlayer.kt
+@@ -9,7 +9,6 @@ import androidx.media3.common.MediaMetadata
+ import androidx.media3.common.Player
+ import androidx.media3.common.util.UnstableApi
+ import expo.modules.audio.Metadata
+-import java.util.IdentityHashMap
+ 
+ // MediaSession reads artwork from Player.mediaMetadata, but expo-audio lock-screen metadata can
+ // change independently of the underlying MediaItem. This wrapper lets the session observe those
+@@ -19,7 +18,8 @@ internal class MetadataInjectingPlayer(
+   player: Player
+ ) : ForwardingPlayer(player) {
+   private val handler = Handler(applicationLooper)
+-  private val listeners = IdentityHashMap<Player.Listener, Player.Listener>()
++  // Blednify patch: keyed by equality, so removeListener finds wrappers passed in through ForwardingPlayer.
++  private val listeners = HashMap<Player.Listener, Player.Listener>()
+   private var injectedMetadata: Metadata? = null
+ 
+   override fun addListener(listener: Player.Listener) {
+@@ -79,9 +79,10 @@ internal class MetadataInjectingPlayer(
+     }
+   }
+ 
++  // Blednify patch: DelegatingPlayerListener forwards every callback (`by listener` dropped all but these two).
+   private inner class MetadataForwardingListener(
+-    private val listener: Player.Listener
+-  ) : Player.Listener by listener {
++    listener: Player.Listener
++  ) : DelegatingPlayerListener(this@MetadataInjectingPlayer, listener) {
+     override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+       listener.onMediaMetadataChanged(this@MetadataInjectingPlayer.mediaMetadata)
+     }
 diff --git a/android/src/main/java/expo/modules/audio/service/PlaylistSessionPlayer.kt b/android/src/main/java/expo/modules/audio/service/PlaylistSessionPlayer.kt
 new file mode 100644
-index 0000000000000000000000000000000000000000..65bbbaafd9b5dcd37d09655600a08e64839e3890
+index 0000000000000000000000000000000000000000..48876fd152a2632e1fffd927a6a26848b4168c58
 --- /dev/null
 +++ b/android/src/main/java/expo/modules/audio/service/PlaylistSessionPlayer.kt
 @@ -0,0 +1,103 @@
@@ -1098,7 +1241,6 @@ index 0000000000000000000000000000000000000000..65bbbaafd9b5dcd37d09655600a08e64
 +import androidx.media3.common.Player
 +import androidx.media3.common.util.UnstableApi
 +import expo.modules.audio.AudioPlaylist
-+import java.util.IdentityHashMap
 +
 +/**
 + * Blednify patch: the session player for a playlist. JS keeps only a small window of the queue in the native
@@ -1114,7 +1256,8 @@ index 0000000000000000000000000000000000000000..65bbbaafd9b5dcd37d09655600a08e64
 +  private val backwardMs: Long,
 +  private val isLive: Boolean
 +) : ForwardingPlayer(player) {
-+  private val listeners = IdentityHashMap<Player.Listener, Player.Listener>()
++  // Keyed by equality: removeListener may get an equal, not identical, wrapper (see DelegatingPlayerListener).
++  private val listeners = HashMap<Player.Listener, Player.Listener>()
 +
 +  override fun getSeekForwardIncrement(): Long = forwardMs
 +
@@ -1184,8 +1327,8 @@ index 0000000000000000000000000000000000000000..65bbbaafd9b5dcd37d09655600a08e64
 +  }
 +
 +  private inner class CommandsForwardingListener(
-+    private val listener: Player.Listener
-+  ) : Player.Listener by listener {
++    listener: Player.Listener
++  ) : DelegatingPlayerListener(this@PlaylistSessionPlayer, listener) {
 +    override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
 +      listener.onAvailableCommandsChanged(this@PlaylistSessionPlayer.availableCommands)
 +    }
