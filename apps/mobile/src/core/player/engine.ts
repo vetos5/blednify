@@ -56,6 +56,11 @@ const UPDATE_INTERVAL_MS = 250;
 const RESTART_THRESHOLD_MS = 3_000;
 const RECENT_AFTER_MS = 3_000;
 const LOAD_TIMEOUT_MS = 20_000;
+/**
+ * A play or load that hasn't started playing after this long is retried once, quietly, in a fresh native player
+ * (see `armWatchdog`); LOAD_TIMEOUT_MS applies after that.
+ */
+const STALL_MS = 8_000;
 const MAX_ERROR_STREAK = 3;
 const POSITION_SAVE_MS = 5_000;
 /** Retry delays after a connection error; the last one repeats until NETWORK_GIVE_UP_MS has passed. */
@@ -108,7 +113,7 @@ let natCur = -1;
 let advancingTo: { ci: number; until: number } | null = null;
 /** Native holds the current entry and can be played without a reload. */
 let natReady = false;
-/** Native player hit an error and must be recreated (ExoPlayer stays idle after errors). */
+/** The native player must be recreated before the next load (see `onPlaybackError`). */
 let natBroken = false;
 /** Ignore status events until the one emitted by `clear()` (trackCount 0) arrives. */
 let awaitingClear = false;
@@ -134,6 +139,12 @@ let pendingSeekMs: number | null = null;
 /** Target of the latest seek; progress holds there until native reports arriving (or the guard expires). */
 let seekGuard: { ms: number; until: number } | null = null;
 let curLoaded = false;
+/** Native has reported playing (loaded) since the last load or play; until then the watchdog runs. */
+let started = false;
+/** Playback errors since native last played; the second one recreates the player (see `onPlaybackError`). */
+let errorsSincePlaying = 0;
+/** Entry whose stalled start already got its quiet retry in a fresh player. */
+let quietRetryUid: number | null = null;
 let watchdog: ReturnType<typeof setTimeout> | null = null;
 let errorStreak = 0;
 let lastCommandAt = 0;
@@ -233,6 +244,7 @@ function resetTrackCounters() {
   lastTimeS = 0;
   recorded = false;
   curLoaded = false;
+  started = false;
   seekGuard = null;
   if (pendingSeekMs !== null) {
     pendingSeekMs = null;
@@ -245,14 +257,32 @@ function clearWatchdog() {
   watchdog = null;
 }
 
+/**
+ * Watches a load or play until native reports playing. A player can wedge without reporting an error: after a
+ * Bluetooth headset vanished mid-song (battery died), every later load in that player hung until the timeout, and
+ * the fresh player made for the retry started at once. So the first stall on a song is retried quietly, after
+ * STALL_MS, in a new player at the same position; a second one is reported and handled like a dropped connection.
+ */
 function armWatchdog() {
   clearWatchdog();
-  if (!wantPlay || curLoaded) return;
-  watchdog = setTimeout(() => {
-    watchdog = null;
-    // Usually a connection that stalls without failing outright; treat it like one rather than skipping.
-    if (wantPlay && !curLoaded) onPlaybackError('Track took too long to load', true);
-  }, LOAD_TIMEOUT_MS);
+  if (!wantPlay || started) return;
+  const uid = entries[index]?.uid;
+  const quiet = uid !== undefined && quietRetryUid !== uid;
+  watchdog = setTimeout(
+    () => {
+      watchdog = null;
+      if (!wantPlay || started || entries[index]?.uid !== uid) return;
+      if (quiet) {
+        quietRetryUid = uid;
+        natBroken = true;
+        load(index, true, progressStore.getState().positionMs);
+        return;
+      }
+      // Usually a connection that stalls without failing outright; treat it like one rather than skipping.
+      onPlaybackError(curLoaded ? 'Playback stalled' : 'Track took too long to load', true, true);
+    },
+    quiet ? STALL_MS : LOAD_TIMEOUT_MS,
+  );
 }
 
 // --- Native lifecycle ------------------------------------------------------------------------
@@ -577,8 +607,10 @@ function onStatus(s: NativeStatus) {
   }
 
   const cur = entries[index]?.track;
-  if (s.isLoaded && !curLoaded) {
-    curLoaded = true;
+  if (s.isLoaded && !curLoaded) curLoaded = true;
+  if (s.isLoaded && s.playing && !started) {
+    started = true;
+    errorsSincePlaying = 0;
     clearWatchdog();
   }
   if (s.isLoaded && pendingSeekMs !== null) {
@@ -699,11 +731,14 @@ function waitForNetwork(message: string) {
   });
 }
 
-function onPlaybackError(message: string, network = false) {
+function onPlaybackError(message: string, network = false, recreate = false) {
   // Auto-skip only while the user wants playback; a paused/stopped player just reports the error.
   const resume = wantPlay;
   clearWatchdog();
-  natBroken = true;
+  // Android: the next `load()` rebuilds the window in the same player (the patched native side re-prepares it), so
+  // the lock-screen session stays attached and keeps its next/previous buttons and seek bar. A new player is made
+  // only when it fails again before playing, in case it is what is stuck. The web backend is always recreated.
+  natBroken = recreate || Platform.OS === 'web' || errorsSincePlaying++ > 0;
   natReady = false;
   pendingSeekMs = null;
   if (network && resume) {
@@ -939,6 +974,7 @@ function play() {
   }
   wantPlay = true;
   lastCommandAt = Date.now();
+  started = false;
   activateLockScreen(entries[index].track);
   startNative();
   armWatchdog();

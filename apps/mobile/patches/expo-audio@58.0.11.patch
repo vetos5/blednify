@@ -117,7 +117,7 @@ index fb2d0b57fb8718df04e5c073b70837b2658f2c16..fea841352cb878f941672b6c8eb70f10
        serviceConnection.playbackServiceBinder?.service?.unregisterPlayable()
      }
 diff --git a/android/src/main/java/expo/modules/audio/AudioPlaylist.kt b/android/src/main/java/expo/modules/audio/AudioPlaylist.kt
-index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..9362b1a4083cb8b06161a7fae0d542d5824c7e8e 100644
+index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..18f6e5a29f8d019764040194a4794fe1e4d8d16a 100644
 --- a/android/src/main/java/expo/modules/audio/AudioPlaylist.kt
 +++ b/android/src/main/java/expo/modules/audio/AudioPlaylist.kt
 @@ -16,6 +16,12 @@ import java.lang.ref.WeakReference
@@ -155,7 +155,7 @@ index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..9362b1a4083cb8b06161a7fae0d542d5
          )
        )
      )
-@@ -190,6 +205,44 @@ class AudioPlaylist(
+@@ -190,6 +205,49 @@ class AudioPlaylist(
      )
    }
  
@@ -183,6 +183,11 @@ index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..9362b1a4083cb8b06161a7fae0d542d5
 +        }
 +        i += 2
 +      }
++      // After a playback error ExoPlayer sits in STATE_IDLE until prepared again. Re-preparing here lets JS rebuild
++      // the window in the SAME player after an error, so the lock-screen session stays attached to it. Recreating
++      // the player instead left the session on the idle placeholder (no next/previous, no seek bar) until the new
++      // player had bound to the service, which can fail for good while the app is in the background.
++      if (ref.playbackState == Player.STATE_IDLE && trackCount > 0) ref.prepare()
 +    }
 +    if (metadata != null && isActiveForLockScreen) this.metadata = metadata
 +    val service = if (isActiveForLockScreen) serviceConnection.playbackServiceBinder?.service else null
@@ -200,7 +205,7 @@ index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..9362b1a4083cb8b06161a7fae0d542d5
    override fun setPlaybackRate(rate: Float) {
      val boundedRate = rate.coerceIn(0.1f, 2.0f)
      currentRate = boundedRate
-@@ -197,7 +250,7 @@ class AudioPlaylist(
+@@ -197,7 +255,7 @@ class AudioPlaylist(
    }
  
    override fun assignBasicMediaSession() {
@@ -209,7 +214,7 @@ index bf3f9c5e5535ddf5e98484310642aa73bd6ae86c..9362b1a4083cb8b06161a7fae0d542d5
      mediaSession = buildBasicMediaSession(appContext?.reactContext ?: return, ref) { requestPlay() }
    }
  
-@@ -249,7 +302,7 @@ class AudioPlaylist(
+@@ -249,7 +307,7 @@ class AudioPlaylist(
  
    override fun releasePlayer() {
      serviceConnection.release()
