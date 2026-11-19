@@ -33,7 +33,7 @@ function statusLabel(item: ActiveDownload, progress: number) {
 }
 
 /** A download row, or a section header between the rows still in progress and the failed ones. */
-type ListItem = ActiveDownload | { header: string };
+type ListItem = ActiveDownload | { header: string; failed?: boolean };
 
 const isFailed = (a: ActiveDownload) => a.status === 'error' && !a.retrying;
 
@@ -44,13 +44,13 @@ export default function DownloadsScreen() {
   const { active, completedCount, bytesUsed } = useDownloads();
   const { downloadOnWifiOnly } = useSettings();
   // Rows with an automatic retry pending aren't failed yet: they stay in progress.
-  const { failed, data } = useMemo(() => {
+  const { data } = useMemo(() => {
     const going = active.filter((a) => !isFailed(a));
     const stuck = active.filter(isFailed);
     const list: ListItem[] = [];
     if (going.length) list.push({ header: `IN PROGRESS · ${going.length}` }, ...going);
-    if (stuck.length) list.push({ header: `FAILED · ${stuck.length}` }, ...stuck);
-    return { failed: stuck.length, data: list };
+    if (stuck.length) list.push({ header: `FAILED · ${stuck.length}`, failed: true }, ...stuck);
+    return { data: list };
   }, [active]);
 
   return (
@@ -88,18 +88,6 @@ export default function DownloadsScreen() {
               chevron
               onPress={() => nav.library('downloaded')}
             />
-            {failed > 0 ? (
-              <ListRow
-                leading={<Artwork uri={null} label="Retry" size={44} fallbackIcon="refresh" />}
-                title="Retry failed downloads"
-                subtitle={plural(failed, 'song')}
-                onPress={() => retryFailedDownloads()}
-                nestedActions
-                trailing={
-                  <IconButton icon="trash-outline" label="Clear failed downloads" color={colors.textSecondary} onPress={clearFailedDownloads} />
-                }
-              />
-            ) : null}
           </View>
         }
         ListEmptyComponent={
@@ -111,9 +99,24 @@ export default function DownloadsScreen() {
         }
         renderItem={({ item }) =>
           'header' in item ? (
-            <Text variant="micro" style={styles.section} accessibilityRole="header">
-              {item.header}
-            </Text>
+            // The failed count is said once, here; the section's own actions sit next to it.
+            <View style={styles.sectionRow}>
+              <Text variant="micro" style={[styles.flex, styles.sectionText]} accessibilityRole="header">
+                {item.header}
+              </Text>
+              {item.failed ? (
+                <>
+                  <IconButton icon="refresh" label="Retry all failed downloads" size={20} onPress={() => retryFailedDownloads()} />
+                  <IconButton
+                    icon="trash-outline"
+                    label="Clear failed downloads"
+                    size={20}
+                    color={colors.textSecondary}
+                    onPress={clearFailedDownloads}
+                  />
+                </>
+              ) : null}
+            </View>
           ) : (
             <ActiveRow item={item} />
           )
@@ -171,8 +174,9 @@ const useStyles = makeStyles((colors) => ({
   stat: { flex: 1, gap: 2 },
   divider: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch', backgroundColor: colors.borderStrong, marginHorizontal: space.lg },
   note: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.lg, paddingVertical: space.md },
-  section: { paddingHorizontal: space.lg, paddingTop: space.lg, paddingBottom: space.sm },
-  row: { height: TRACK_ROW_HEIGHT + 8, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingLeft: space.lg, paddingRight: space.sm },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', minHeight: 48, paddingLeft: space.lg, paddingRight: space.sm, paddingTop: space.sm },
+  sectionText: { paddingVertical: space.sm },
+  row: { minHeight: TRACK_ROW_HEIGHT + 8, paddingVertical: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingLeft: space.lg, paddingRight: space.sm },
   meta: { flex: 1, minWidth: 0, gap: 3 },
   bar: { height: 3, borderRadius: 2, backgroundColor: colors.surface3, overflow: 'hidden' },
   barFill: { height: '100%', backgroundColor: colors.accent },
