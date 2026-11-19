@@ -2,8 +2,10 @@ import { AppState } from 'react-native';
 
 import { ApiError, apiGet, queryString, type ApiTrack } from './api';
 import { getDb, writeTx } from './db';
+import { dropQueuedDownloads, renameQueuedDownloads } from './downloads';
 import { removeTrackReferences, rewriteTrackReferences } from './library';
 import { libIndex, loadLibIndexAgain } from './lib-index';
+import { deleteQuietly } from './paths';
 import { removeKeysFromQueue, updateQueueTracks } from './player/engine';
 import { playerStore } from './player/store';
 import { invalidate, libKeys } from './query-client';
@@ -55,13 +57,16 @@ export async function forgetTracks(keys: readonly string[]): Promise<void> {
   await writeTx((db) => removeTrackReferences(db, keys));
   invalidate(libKeys.all);
   removeKeysFromQueue(new Set(keys));
+  dropQueuedDownloads(keys);
 }
 
 /** Rewrites every copy of tracks whose file moved on the server to the new ids (old key -> new key). */
 async function applyMoves(moves: Map<string, string>): Promise<void> {
   if (!moves.size) return;
-  await writeTx((db) => rewriteTrackReferences(db, moves));
+  const orphans = await writeTx((db) => rewriteTrackReferences(db, moves));
+  for (const rel of orphans) deleteQuietly(rel);
   await loadLibIndexAgain();
+  renameQueuedDownloads(moves);
   invalidate(libKeys.all);
   const fresh = new Map<string, AppTrack>();
   for (const t of playerStore.getState().queue) {

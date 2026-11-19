@@ -172,6 +172,24 @@ export function removeSearchTracks(keys: readonly string[]): void {
   searchHistoryStore.setState({ entries: next });
 }
 
+/** Follows songs the server moved (old key -> new key); an entry whose new key is already listed is dropped. */
+export function renameSearchTracks(moves: ReadonlyMap<string, string>): void {
+  const current = searchHistoryStore.getState().entries;
+  if (!current.some((e) => e.kind === 'track' && moves.has(e.track.key))) return;
+  const seen = new Set(current.map((e) => e.id));
+  const next: SearchHistoryEntry[] = [];
+  for (const e of current) {
+    const to = e.kind === 'track' ? moves.get(e.track.key) : undefined;
+    if (e.kind !== 'track' || !to) next.push(e);
+    else if (!seen.has(to)) {
+      seen.add(to);
+      next.push({ kind: 'track', id: to, track: { ...e.track, key: to, id: to.slice(2) } });
+    }
+  }
+  save(next);
+  searchHistoryStore.setState({ entries: next });
+}
+
 /** Remove all history entries. */
 export function clearSearchHistory(): void {
   kv.remove(KV_KEY);

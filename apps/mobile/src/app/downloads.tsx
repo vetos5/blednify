@@ -2,7 +2,17 @@ import { FlashList } from '@shopify/flash-list';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { cancelDownload, downloadTracks, formatBytes, retryFailedDownloads, useDownloadProgress, useDownloads, useSettings, type AppTrack, type DownloadStatus } from '@/core';
+import {
+  cancelDownload,
+  clearFailedDownloads,
+  downloadTracks,
+  formatBytes,
+  retryFailedDownloads,
+  useDownloadProgress,
+  useDownloads,
+  useSettings,
+  type ActiveDownload,
+} from '@/core';
 import { Backdrop } from '@/ui/components/Backdrop';
 import { Artwork } from '@/ui/components/Artwork';
 import { EmptyState } from '@/ui/components/EmptyState';
@@ -15,11 +25,9 @@ import { plural } from '@/ui/format';
 import { nav } from '@/ui/nav';
 import { makeStyles, radius, space, TRACK_ROW_HEIGHT, useColors } from '@/ui/theme';
 
-type Active = { track: AppTrack; status: DownloadStatus };
-
-function statusLabel(status: DownloadStatus, progress: number) {
-  if (status === 'queued') return 'Waiting…';
-  if (status === 'error') return 'Failed — tap retry';
+function statusLabel(item: ActiveDownload, progress: number) {
+  if (item.status === 'queued') return 'Waiting…';
+  if (item.status === 'error') return item.retrying ? 'Retrying soon…' : `Failed · ${item.error ?? 'tap retry'}`;
   return `Downloading · ${Math.round(progress * 100)}%`;
 }
 
@@ -29,7 +37,8 @@ export default function DownloadsScreen() {
   const insets = useSafeAreaInsets();
   const { active, completedCount, bytesUsed } = useDownloads();
   const { downloadOnWifiOnly } = useSettings();
-  const failed = active.filter((a) => a.status === 'error').length;
+  // Rows with an automatic retry pending aren't failed yet.
+  const failed = active.filter((a) => a.status === 'error' && !a.retrying).length;
 
   return (
     <View style={styles.root}>
@@ -71,6 +80,10 @@ export default function DownloadsScreen() {
                 title="Retry failed downloads"
                 subtitle={plural(failed, 'track')}
                 onPress={() => retryFailedDownloads()}
+                nestedActions
+                trailing={
+                  <IconButton icon="trash-outline" label="Clear failed downloads" color={colors.textSecondary} onPress={clearFailedDownloads} />
+                }
               />
             ) : null}
             {active.length > 0 ? (
@@ -93,12 +106,12 @@ export default function DownloadsScreen() {
   );
 }
 
-function ActiveRow({ item }: { item: Active }) {
+function ActiveRow({ item }: { item: ActiveDownload }) {
   const styles = useStyles();
   const colors = useColors();
   const { track, status } = item;
   const progress = useDownloadProgress(track.key);
-  const failed = status === 'error';
+  const failed = status === 'error' && !item.retrying;
   return (
     <View style={styles.row}>
       <Artwork uri={track.artworkUri} label={track.album || track.title} size={44} recyclingKey={track.key} />
@@ -107,17 +120,19 @@ function ActiveRow({ item }: { item: Active }) {
           {track.title}
         </Text>
         <Text variant="caption" numberOfLines={1} color={failed ? colors.danger : colors.textSecondary}>
-          {statusLabel(status, progress)}
+          {statusLabel(item, progress)}
         </Text>
         <View style={styles.bar}>
           <View style={[styles.barFill, { width: `${Math.round((status === 'downloading' ? progress : 0) * 100)}%` }]} />
         </View>
       </View>
-      {failed ? (
-        <IconButton icon="refresh" label="Retry download" onPress={() => downloadTracks([track])} />
-      ) : (
-        <IconButton icon="close" label="Cancel download" color={colors.textSecondary} onPress={() => cancelDownload(track.key)} />
-      )}
+      {failed ? <IconButton icon="refresh" label="Retry download" onPress={() => downloadTracks([track])} /> : null}
+      <IconButton
+        icon="close"
+        label={failed ? 'Dismiss failed download' : 'Cancel download'}
+        color={colors.textSecondary}
+        onPress={() => cancelDownload(track.key)}
+      />
     </View>
   );
 }

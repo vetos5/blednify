@@ -71,7 +71,17 @@ export { onProgress, progressStore, usePlayer, useProgress, useProgressSeconds }
 export { setVolume, toggleMute, volumeStore, volumeSupported, type VolumeState } from './player/volume';
 
 // Downloads
-export { cancelDownload, downloadTracks, removeDownload, retryFailedDownloads, useDownloadProgress, useDownloadState, useDownloads } from './downloads';
+export {
+  cancelDownload,
+  clearFailedDownloads,
+  downloadTracks,
+  removeDownload,
+  retryFailedDownloads,
+  useDownloadProgress,
+  useDownloadState,
+  useDownloads,
+  type ActiveDownload,
+} from './downloads';
 
 // Import
 export { deleteLocalTrack, importFromDevice } from './import/importer';

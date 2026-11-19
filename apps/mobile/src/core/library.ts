@@ -20,7 +20,7 @@ import {
   type ResolveCtx,
   useResolvedTracks,
 } from './tracks';
-import { removeSearchTracks } from './search-history';
+import { removeSearchTracks, renameSearchTracks } from './search-history';
 import type { AlbumView, AppTrack, ArtistView, Origin, Playlist } from './types';
 import { randomId } from './util';
 
@@ -531,8 +531,10 @@ export async function reorderPlaylist(id: string, from: number, to: number): Pro
  * now (the server found it under another path). Where the new id is already liked/recent/downloaded, the old
  * copy is dropped.
  */
-export async function rewriteTrackReferences(db: SQLiteDatabase, moves: ReadonlyMap<string, string>): Promise<void> {
+export async function rewriteTrackReferences(db: SQLiteDatabase, moves: ReadonlyMap<string, string>): Promise<string[]> {
   const ids = (key: string) => [key, key.slice(2)] as const;
+  /** Files of old download rows the new id already has its own copy of; the caller deletes them. */
+  const orphans: string[] = [];
   for (const [from, to] of moves) {
     const [toKey, toId] = ids(to);
     const set = `track = json_set(track, '$.key', ?, '$.id', ?)`;
@@ -545,6 +547,14 @@ export async function rewriteTrackReferences(db: SQLiteDatabase, moves: Readonly
     await db.runAsync(`UPDATE OR IGNORE recents SET key = ?, ${set} WHERE key = ?`, toKey, toKey, toId, from);
     await db.runAsync('DELETE FROM recents WHERE key = ?', from);
     await db.runAsync(`UPDATE OR IGNORE downloads SET key = ?, ${set} WHERE key = ?`, toKey, toKey, toId, from);
+    // The new id was downloaded already (again, after the move): the old row is a duplicate copy.
+    const dup = await db.getFirstAsync<{ file: string; art: string | null }>('SELECT file, art FROM downloads WHERE key = ?', from);
+    if (dup) {
+      const kept = await db.getFirstAsync<{ file: string; art: string | null }>('SELECT file, art FROM downloads WHERE key = ?', toKey);
+      await db.runAsync('DELETE FROM downloads WHERE key = ?', from);
+      if (dup.file !== kept?.file) orphans.push(dup.file);
+      if (dup.art && dup.art !== kept?.art) orphans.push(dup.art);
+    }
     const affected = await db.getAllAsync<{ playlist_id: string }>(
       'SELECT DISTINCT playlist_id FROM playlist_tracks WHERE key = ?',
       from,
@@ -553,7 +563,8 @@ export async function rewriteTrackReferences(db: SQLiteDatabase, moves: Readonly
     await db.runAsync(`UPDATE playlist_tracks SET key = ?, ${set} WHERE key = ?`, toKey, toKey, toId, from);
     for (const { playlist_id } of affected) await touch(db, playlist_id);
   }
-  removeSearchTracks([...moves.keys()]);
+  renameSearchTracks(moves);
+  return orphans;
 }
 
 /** Remove every library reference (likes, recents, playlist entries) to the given track keys. */
