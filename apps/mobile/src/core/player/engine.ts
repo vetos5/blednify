@@ -35,7 +35,7 @@ import {
   type AudioPlaylistStatus,
   type PlaylistEdit,
 } from './audio';
-import { addNetworkStateListener } from 'expo-network';
+import { addNetworkStateListener, getNetworkStateAsync } from 'expo-network';
 import { AppState, Platform } from 'react-native';
 
 import { authHeadersFor } from '../auth';
@@ -834,6 +834,36 @@ function retryAfterNetworkError() {
   load(index, true, progressStore.getState().positionMs);
 }
 
+/** The next entry after the current one that plays without the network (downloaded or on-device), if any. */
+function nextOfflineIndex(): number | null {
+  const n = entries.length;
+  const upcoming = S().repeat === 'all' ? n - 1 : n - 1 - index;
+  for (let k = 1; k <= upcoming; k++) {
+    const i = (index + k) % n;
+    if (resolveTrack(entries[i].track).localUri) return i;
+  }
+  return null;
+}
+
+/**
+ * The phone itself is offline (airplane mode, no data in the subway): waiting on a streamed song can take as long
+ * as the outage, so move on to the next song that plays offline. Retrying in place stays for a server or
+ * connection that may come back any moment.
+ */
+function skipToOfflineSongIfOffline(uid: number) {
+  void getNetworkStateAsync()
+    .then((net) => {
+      if (net.isConnected !== false && net.isInternetReachable !== false) return;
+      if (!netRetry || netRetry.uid !== uid || entries[index]?.uid !== uid || !wantPlay) return;
+      const ni = nextOfflineIndex();
+      if (ni === null) return;
+      cancelNetworkRetry();
+      playerStore.setState({ error: 'Offline · playing your downloads', errorId: S().errorId + 1 });
+      load(ni, true);
+    })
+    .catch(() => undefined);
+}
+
 function waitForNetwork(message: string) {
   const cur = entries[index];
   if (!cur) return;
@@ -842,6 +872,7 @@ function waitForNetwork(message: string) {
     netRetry = { uid: cur.uid, attempt: 0, since: Date.now(), timer: null };
     // Only the first failure is announced; retries stay quiet until one works or we give up.
     playerStore.setState({ error: `${message}. Retrying…`, errorId: S().errorId + 1 });
+    if (!resolveTrack(cur.track).localUri) skipToOfflineSongIfOffline(cur.uid);
   }
   const r = netRetry;
   if (Date.now() - r.since > NETWORK_GIVE_UP_MS) {
