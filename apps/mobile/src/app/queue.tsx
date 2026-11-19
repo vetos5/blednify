@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { AccessibilityInfo, FlatList, Pressable, StyleSheet, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
@@ -309,8 +309,13 @@ const QueueRow = memo(function QueueRow({
             onAccessibilityAction={(e) => {
               const action = e.nativeEvent.actionName;
               if (action === 'delete') remove();
-              else if (action === 'moveUp' && rel > 0) player.moveInQueue(abs, abs - 1);
-              else if (action === 'moveDown' && rel < drag.count.get() - 1) player.moveInQueue(abs, abs + 1);
+              else if (action === 'moveUp' && rel > 0) {
+                player.moveInQueue(abs, abs - 1);
+                AccessibilityInfo.announceForAccessibility(`${track.title} moved to position ${rel} in Up next`);
+              } else if (action === 'moveDown' && rel < drag.count.get() - 1) {
+                player.moveInQueue(abs, abs + 1);
+                AccessibilityInfo.announceForAccessibility(`${track.title} moved to position ${rel + 2} in Up next`);
+              }
             }}
             android_ripple={{ color: colors.ripple }}
             onPress={() => {
