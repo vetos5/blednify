@@ -204,6 +204,25 @@ describe("scan", () => {
     }
   });
 
+  test("moved and retagged in one go (new size, same audio): still followed by duration, title and artist", async () => {
+    const s = testServer({ "old/t.wav": wav({ title: "Héroes", artist: "David Bowie" }, 600), "keep.wav": wav({ title: "K" }, 444) });
+    try {
+      await s.ctx.scanner.scan();
+      const oldId = trackId("old/t.wav");
+      rmSync(join(s.musicDir, "old"), { recursive: true });
+      mkdirSync(join(s.musicDir, "David Bowie/Heroes"), { recursive: true });
+      // Retagged: an album tag added (bigger file), title case/accents normalised.
+      writeFileSync(join(s.musicDir, "David Bowie/Heroes/01 Heroes.wav"), wav({ title: "heroes", artist: "David Bowie", album: "Heroes" }, 600));
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 1, removed: 0, total: 2 });
+      expect(await (await s.app.request(`/api/tracks/gone?ids=${oldId}`)).json()).toEqual({
+        gone: [],
+        moved: { [oldId]: trackId("David Bowie/Heroes/01 Heroes.wav") },
+      });
+    } finally {
+      s.close();
+    }
+  });
+
   test("two identical copies: deleting one of two missing twins is not guessed", async () => {
     const same = wav({ title: "Twin" }, 557);
     const s = testServer({ "x/1.wav": same, "x/2.wav": same, "y/3.wav": same, "keep.wav": wav({ title: "K" }, 444) });

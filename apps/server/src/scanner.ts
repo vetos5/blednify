@@ -15,6 +15,15 @@ export type ScanResult = { added: number; removed: number; total: number; held?:
 
 const HELD_FOLDERS = 5;
 
+/** Tag text compared case-, accent- and spacing-insensitively (retaggers normalise these). */
+const foldTag = (s: string) =>
+  s
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+
 /** Folders of the given relative paths, most files first ("" is the music folder itself). */
 function foldersOf(rels: readonly string[]): string[] {
   const counts = new Map<string, number>();
@@ -291,9 +300,11 @@ export class Scanner {
     const fp = (r: Pick<TrackRow, "size" | "duration_ms" | "mime">) => `${r.size}:${r.duration_ms}:${r.mime}`;
     const missing = new Set(missingIds);
     const oldByFp = new Map<string, { row: TrackRow; ids: string[] }>();
+    const oldRows = new Map<string, TrackRow>();
     for (const id of missingIds) {
       const row = this.lib.trackRow(id);
       if (!row) continue;
+      oldRows.set(id, row);
       const g = oldByFp.get(fp(row));
       if (g) g.ids.push(id);
       else oldByFp.set(fp(row), { row, ids: [id] });
@@ -305,6 +316,21 @@ export class Scanner {
       if (live.length === 1) {
         moves.set(ids[0]!, live[0]!);
         targets.add(live[0]!);
+      }
+    }
+    // Moved and retagged in one go (Picard, beets): new tags change the size, not the audio. Pair the rest with songs
+    // new in this scan by duration, type, title and artist, again only when unambiguous.
+    const loose = (r: Pick<TrackRow, "duration_ms" | "mime" | "title" | "artist">) =>
+      `${r.duration_ms}:${r.mime}:${foldTag(r.title)}:${foldTag(r.artist)}`;
+    const oldByLoose = new Map<string, string[]>();
+    for (const [id, row] of oldRows) if (!moves.has(id)) oldByLoose.set(loose(row), [...(oldByLoose.get(loose(row)) ?? []), id]);
+    const freshByLoose = new Map<string, TrackRow[]>();
+    for (const r of fresh) if (!targets.has(r.id)) freshByLoose.set(loose(r), [...(freshByLoose.get(loose(r)) ?? []), r]);
+    for (const [key, olds] of oldByLoose) {
+      const news = freshByLoose.get(key);
+      if (olds.length === 1 && news?.length === 1) {
+        moves.set(olds[0]!, news[0]!.id);
+        targets.add(news[0]!.id);
       }
     }
     // Deleted in an earlier scan and back now (under any path).
