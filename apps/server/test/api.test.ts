@@ -97,14 +97,14 @@ describe("scan", () => {
       expect((await s.ctx.scanner.scan()).total).toBe(2);
       // Unmounted volume: the mount point is empty.
       for (const d of ["a", "b"]) rmSync(join(s.musicDir, d), { recursive: true });
-      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 2, held: 2 });
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 2, held: 2, heldFolders: ["a", "b"] });
       // Root not readable at all: the scan fails instead of deleting.
       rmSync(s.musicDir, { recursive: true });
       await expect(s.ctx.scanner.scan()).rejects.toThrow(/not readable/);
       expect(s.ctx.lib.trackCount()).toBe(2);
       // A rescan holds them until the admin confirms, then reconciles an intentionally emptied folder.
       mkdirSync(s.musicDir);
-      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 2, held: 2 });
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 2, held: 2, heldFolders: ["a", "b"] });
       expect(await s.ctx.scanner.scan(2)).toEqual({ added: 0, removed: 2, total: 0 });
     } finally {
       s.close();
@@ -118,9 +118,9 @@ describe("scan", () => {
     try {
       expect((await s.ctx.scanner.scan()).total).toBe(26);
       rmSync(join(s.musicDir, "mnt"), { recursive: true });
-      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 26, held: 25 });
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 26, held: 25, heldFolders: ["mnt"] });
       // The admin sees it without rescanning by hand.
-      expect(((await (await s.app.request("/api/admin/check", { method: "POST" })).json()) as { held: number }).held).toBe(25);
+      expect(await (await s.app.request("/api/admin/check", { method: "POST" })).json()).toMatchObject({ held: 25, heldFolders: ["mnt"] });
       const ids = Array.from({ length: 25 }, (_, i) => trackId(`mnt/${i}.wav`));
       expect(await (await s.app.request(`/api/tracks/gone?ids=${ids.join(",")}`)).json()).toEqual({ gone: [], moved: {} });
       // Too small a confirmation still holds; the right one removes them.

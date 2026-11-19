@@ -336,13 +336,18 @@ function AdminSection() {
     if (!r) return;
     if (r.held) {
       const n = r.held;
+      // Older servers don't name the folders.
+      const where = r.heldFolders?.length
+        ? `\n\nMissing from: ${r.heldFolders.map((d) => d || 'the music folder itself').join(', ')}${r.heldFolders.length >= 5 ? ', …' : ''}`
+        : '';
       // Many songs missing at once is what an unplugged drive looks like: removing them would also take them out
       // of likes and playlists on every device, so the server waits for this confirmation.
       confirm({
         title: `${plural(n, 'song')} missing on the server`,
         message:
           'Their files are no longer in the server’s music folder. If a drive or folder isn’t mounted, mount it ' +
-          'and rescan instead. Removing them also takes them out of likes and playlists on every device.',
+          'and rescan instead. Removing them also takes them out of likes and playlists on every device.' +
+          where,
         confirmLabel: 'Remove',
         destructive: true,
         onConfirm: () => void rescan(n),

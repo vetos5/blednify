@@ -6,8 +6,24 @@ import type { ArtworkCache } from "./artwork";
 import { albumId, artistId, audioMime, trackId, UNKNOWN_ALBUM, UNKNOWN_ARTIST } from "./ids";
 import { toTrack, type Library, type Track, type TrackRow } from "./library";
 
-/** `held`: songs whose files are missing but were kept because removing them needs confirmation (see `scan`). */
-export type ScanResult = { added: number; removed: number; total: number; held?: number };
+/**
+ * `held`: songs whose files are missing but were kept because removing them needs confirmation (see `scan`);
+ * `heldFolders`: the folders they were in (most songs first, at most HELD_FOLDERS), so the admin can tell an
+ * unmounted drive from a deliberate delete.
+ */
+export type ScanResult = { added: number; removed: number; total: number; held?: number; heldFolders?: string[] };
+
+const HELD_FOLDERS = 5;
+
+/** Folders of the given relative paths, most files first ("" is the music folder itself). */
+function foldersOf(rels: readonly string[]): string[] {
+  const counts = new Map<string, number>();
+  for (const rel of rels) {
+    const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+    counts.set(dir, (counts.get(dir) ?? 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, HELD_FOLDERS).map(([d]) => d);
+}
 
 /**
  * A scan removes at most this many songs on its own. More missing files at once is what an unmounted drive or
@@ -195,7 +211,12 @@ export class Scanner {
   get held(): number {
     return this.lastHeld;
   }
+  /** Folders of those songs (see `ScanResult.heldFolders`). */
+  get heldFolders(): string[] {
+    return this.lastHeldFolders;
+  }
   private lastHeld = 0;
+  private lastHeldFolders: string[] = [];
 
   /**
    * Runs an incremental scan. Calls during a running scan coalesce into one follow-up scan.
@@ -355,12 +376,14 @@ export class Scanner {
     );
     let gone = missing.filter(([, k]) => !moves.has(k.id));
     let held = 0;
+    let heldFolders: string[] = [];
     if ((gone.length > REMOVE_WITHOUT_CONFIRM || (files.length === 0 && gone.length > 0)) && confirmRemove < gone.length) {
       console.warn(
         `[scan] ${gone.length} indexed songs are missing from ${this.musicDir}; keeping them (drive or folder not ` +
           `mounted?). Run POST /api/rescan?confirmRemove=${gone.length} to remove them.`,
       );
       held = gone.length;
+      heldFolders = foldersOf(gone.map(([rel]) => rel));
       gone = [];
     }
     this.lib.recordMoves(moves);
@@ -370,8 +393,12 @@ export class Scanner {
 
     this.lib.rebuildAggregates();
     const result: ScanResult = { added, removed: gone.length, total: this.lib.trackCount() };
-    if (held) result.held = held;
+    if (held) {
+      result.held = held;
+      result.heldFolders = heldFolders;
+    }
     this.lastHeld = held;
+    this.lastHeldFolders = heldFolders;
     const ms = Math.round(performance.now() - started);
     console.log(
       `[scan] ${files.length} files, ${changed.length} parsed, +${added} -${gone.length}` +

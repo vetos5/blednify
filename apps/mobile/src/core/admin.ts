@@ -62,18 +62,20 @@ export function refreshCatalog() {
 // --- Check / rescan / delete -----------------------------------------------------------------
 
 /** `held`: songs the server's last scan kept although their files are missing (unmounted drive?). */
-type AdminInfo = { maxUploadBytes: number; imports: boolean; held: number };
+type AdminInfo = { maxUploadBytes: number; imports: boolean; held: number; heldFolders: string[] };
 export const adminInfo = create<{ info: AdminInfo | null }>(() => ({ info: null }));
 
 /** Verifies an admin token against a server (before or after saving it). */
 export async function checkAdmin(url?: string, token?: string): Promise<{ ok: boolean; maxUploadBytes?: number; error?: string }> {
   try {
     const base = url !== undefined ? normalizeServerUrl(url) : undefined;
-    const r = await adminRequest<{ ok: boolean; maxUploadBytes: number; imports?: boolean; held?: number }>('POST', '/api/admin/check', {
+    const r = await adminRequest<{ ok: boolean; maxUploadBytes: number; imports?: boolean; held?: number; heldFolders?: string[] }>('POST', '/api/admin/check', {
       base,
       token,
     });
-    adminInfo.setState({ info: { maxUploadBytes: r.maxUploadBytes, imports: !!r.imports, held: r.held ?? 0 } });
+    adminInfo.setState({
+      info: { maxUploadBytes: r.maxUploadBytes, imports: !!r.imports, held: r.held ?? 0, heldFolders: r.heldFolders ?? [] },
+    });
     return { ok: true, maxUploadBytes: r.maxUploadBytes };
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) return { ok: false, error: 'Server is too old for uploads; update it' };
@@ -82,7 +84,7 @@ export async function checkAdmin(url?: string, token?: string): Promise<{ ok: bo
   }
 }
 
-export type RescanResult = { added: number; removed: number; total: number; held?: number };
+export type RescanResult = { added: number; removed: number; total: number; held?: number; heldFolders?: string[] };
 
 /**
  * Rescans the server's music folder. Many missing songs at once are kept and reported as `held` (an unmounted
@@ -92,7 +94,7 @@ export async function rescanServer(confirmRemove?: number): Promise<RescanResult
   const q = confirmRemove ? `?confirmRemove=${confirmRemove}` : '';
   const r = await adminRequest<RescanResult>('POST', `/api/rescan${q}`, { timeoutMs: 10 * 60_000 });
   const info = adminInfo.getState().info;
-  if (info) adminInfo.setState({ info: { ...info, held: r.held ?? 0 } });
+  if (info) adminInfo.setState({ info: { ...info, held: r.held ?? 0, heldFolders: r.heldFolders ?? [] } });
   refreshCatalog();
   void pruneGoneTracks(true);
   return r;
