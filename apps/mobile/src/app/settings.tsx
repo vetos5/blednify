@@ -24,6 +24,7 @@ import {
 import { attempt, errorMessage, importMusic } from '@/ui/actions';
 import { Backdrop } from '@/ui/components/Backdrop';
 import { BrandMark } from '@/ui/components/BrandMark';
+import { confirm } from '@/ui/components/ConfirmSheet';
 import { Icon, type IconName } from '@/ui/components/Icon';
 import { LibraryBackupRows } from '@/ui/components/LibraryBackup';
 import { ListRow } from '@/ui/components/ListRow';
@@ -327,11 +328,27 @@ function AdminSection() {
     } else haptics.warn();
   };
 
-  const rescan = async () => {
+  const rescan = async (confirmRemove?: number) => {
     setRescanning(true);
-    const r = await attempt(rescanServer());
+    const r = await attempt(rescanServer(confirmRemove));
     setRescanning(false);
-    if (r) showToast(`Rescanned · +${r.added} −${r.removed} · ${plural(r.total, 'track')}`, 'success');
+    if (!r) return;
+    if (r.held) {
+      const n = r.held;
+      // Many songs missing at once is what an unplugged drive looks like: removing them would also take them out
+      // of likes and playlists on every device, so the server waits for this confirmation.
+      confirm({
+        title: `${plural(n, 'song')} missing on the server`,
+        message:
+          'Their files are no longer in the server’s music folder. If a drive or folder isn’t mounted, mount it ' +
+          'and rescan instead. Removing them also takes them out of likes and playlists on every device.',
+        confirmLabel: 'Remove',
+        destructive: true,
+        onConfirm: () => void rescan(n),
+      });
+      return;
+    }
+    showToast(`Rescanned · +${r.added} −${r.removed} · ${plural(r.total, 'track')}`, 'success');
   };
 
   return (

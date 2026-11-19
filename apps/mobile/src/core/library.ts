@@ -519,6 +519,36 @@ export async function reorderPlaylist(id: string, from: number, to: number): Pro
   invalidatePlaylist(id);
 }
 
+/**
+ * Points every stored copy of a server track (likes, recents, playlist entries, downloads) at the id its file has
+ * now (the server found it under another path). Where the new id is already liked/recent/downloaded, the old
+ * copy is dropped.
+ */
+export async function rewriteTrackReferences(db: SQLiteDatabase, moves: ReadonlyMap<string, string>): Promise<void> {
+  const ids = (key: string) => [key, key.slice(2)] as const;
+  for (const [from, to] of moves) {
+    const [toKey, toId] = ids(to);
+    const set = `track = json_set(track, '$.key', ?, '$.id', ?)`;
+    const liked = await db.runAsync(`UPDATE OR IGNORE likes SET key = ?, ${set} WHERE key = ?`, toKey, toKey, toId, from);
+    const dupLike = await db.runAsync('DELETE FROM likes WHERE key = ?', from);
+    if (liked.changes || dupLike.changes) {
+      await addTombstone(db, 'like', from);
+      await clearTombstone(db, 'like', toKey);
+    }
+    await db.runAsync(`UPDATE OR IGNORE recents SET key = ?, ${set} WHERE key = ?`, toKey, toKey, toId, from);
+    await db.runAsync('DELETE FROM recents WHERE key = ?', from);
+    await db.runAsync(`UPDATE OR IGNORE downloads SET key = ?, ${set} WHERE key = ?`, toKey, toKey, toId, from);
+    const affected = await db.getAllAsync<{ playlist_id: string }>(
+      'SELECT DISTINCT playlist_id FROM playlist_tracks WHERE key = ?',
+      from,
+    );
+    if (!affected.length) continue;
+    await db.runAsync(`UPDATE playlist_tracks SET key = ?, ${set} WHERE key = ?`, toKey, toKey, toId, from);
+    for (const { playlist_id } of affected) await touch(db, playlist_id);
+  }
+  removeSearchTracks([...moves.keys()]);
+}
+
 /** Remove every library reference (likes, recents, playlist entries) to the given track keys. */
 export async function removeTrackReferences(db: SQLiteDatabase, keys: readonly string[]): Promise<void> {
   for (const key of keys) {

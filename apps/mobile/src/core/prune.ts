@@ -2,34 +2,73 @@ import { AppState } from 'react-native';
 
 import { ApiError, apiGet, queryString, type ApiTrack } from './api';
 import { getDb, writeTx } from './db';
-import { removeTrackReferences } from './library';
-import { libIndex } from './lib-index';
+import { removeTrackReferences, rewriteTrackReferences } from './library';
+import { libIndex, loadLibIndexAgain } from './lib-index';
 import { removeKeysFromQueue, updateQueueTracks } from './player/engine';
 import { playerStore } from './player/store';
 import { invalidate, libKeys } from './query-client';
-import { getServerBase, settingsStore } from './settings';
+import { getServerBase, kv, settingsStore } from './settings';
 import type { AppTrack } from './types';
 
 const CHUNK = 200;
 const MIN_INTERVAL_MS = 5 * 60_000;
+/**
+ * A song the server reports deleted is dropped from likes and playlists only once it has stayed deleted this long.
+ * A drive or folder that was unmounted for a while (the server rescanned without it) then costs nothing: when it is
+ * back, the songs are indexed again under the same ids and nothing was removed. Deletes made from this phone
+ * (`forgetTracks`) apply at once.
+ */
+const GONE_GRACE_MS = 24 * 60 * 60_000;
+const GONE_SEEN_KEY = 'prune.goneSeen';
 
 let running: Promise<number> | null = null;
 let lastRun = 0;
 /** Set once the server answers 404 (built before /api/tracks/gone); retried after a server change. */
 let unsupportedBase: string | null = null;
 
-/** Remote track keys the library or queue still references. Downloaded copies stay: they play offline. */
+/** Remote track keys the library, downloads or queue still reference. */
 async function referencedRemoteKeys(): Promise<string[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<{ key: string }>(
     `SELECT key FROM likes WHERE key LIKE 'r:%'
      UNION SELECT key FROM recents WHERE key LIKE 'r:%'
-     UNION SELECT key FROM playlist_tracks WHERE key LIKE 'r:%'`,
+     UNION SELECT key FROM playlist_tracks WHERE key LIKE 'r:%'
+     UNION SELECT key FROM downloads WHERE key LIKE 'r:%'`,
   );
   const keys = new Set(rows.map((r) => r.key));
   for (const t of playerStore.getState().queue) if (t.origin === 'remote') keys.add(t.key);
-  const downloads = libIndex.getState().downloads;
-  return [...keys].filter((k) => !downloads.has(k));
+  return [...keys];
+}
+
+function readGoneSeen(): Record<string, number> {
+  try {
+    const v = JSON.parse(kv.getString(GONE_SEEN_KEY) ?? '{}') as unknown;
+    return v && typeof v === 'object' ? (v as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Drops server tracks from likes, recents, playlists and the queue now (deleted from this phone). */
+export async function forgetTracks(keys: readonly string[]): Promise<void> {
+  if (!keys.length) return;
+  await writeTx((db) => removeTrackReferences(db, keys));
+  invalidate(libKeys.all);
+  removeKeysFromQueue(new Set(keys));
+}
+
+/** Rewrites every copy of tracks whose file moved on the server to the new ids (old key -> new key). */
+async function applyMoves(moves: Map<string, string>): Promise<void> {
+  if (!moves.size) return;
+  await writeTx((db) => rewriteTrackReferences(db, moves));
+  await loadLibIndexAgain();
+  invalidate(libKeys.all);
+  const fresh = new Map<string, AppTrack>();
+  for (const t of playerStore.getState().queue) {
+    const to = moves.get(t.key);
+    if (to) fresh.set(t.key, { ...t, key: to, id: to.slice(2) });
+  }
+  updateQueueTracks(fresh);
 }
 
 // --- Copies of server tracks (likes, playlists, recents, downloads, queue) ----------------------
@@ -144,30 +183,52 @@ async function run(): Promise<number> {
   if (unsupportedBase === base) return 0;
   const keys = await referencedRemoteKeys();
   const gone: string[] = [];
+  const moves = new Map<string, string>();
+  let complete = true;
   for (let i = 0; i < keys.length; i += CHUNK) {
     const ids = keys.slice(i, i + CHUNK).map((k) => k.slice(2));
     try {
-      const r = await apiGet<{ gone: string[] }>(base, `/api/tracks/gone${queryString({ ids: ids.join(',') })}`);
+      const r = await apiGet<{ gone: string[]; moved?: Record<string, string> }>(
+        base,
+        `/api/tracks/gone${queryString({ ids: ids.join(',') })}`,
+      );
       gone.push(...r.gone.map((id) => `r:${id}`));
+      for (const [from, to] of Object.entries(r.moved ?? {}))
+        if (typeof to === 'string' && to && to !== from) moves.set(`r:${from}`, `r:${to}`);
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         unsupportedBase = base;
-        break;
+        return 0;
       }
-      if (!gone.length) throw e;
+      if (!gone.length && !moves.size) throw e;
+      complete = false;
       break;
     }
   }
-  if (!gone.length) return 0;
-  await writeTx((db) => removeTrackReferences(db, gone));
-  invalidate(libKeys.all);
-  removeKeysFromQueue(new Set(gone));
-  return gone.length;
+  await applyMoves(moves);
+
+  // Deleted songs wait out GONE_GRACE_MS (see there); downloaded copies stay everywhere: they play offline.
+  const now = Date.now();
+  const seen = readGoneSeen();
+  const next: Record<string, number> = complete ? {} : { ...seen };
+  const downloads = libIndex.getState().downloads;
+  const ripe: string[] = [];
+  for (const key of gone) {
+    if (downloads.has(key)) continue;
+    const since = seen[key] ?? now;
+    next[key] = since;
+    if (now - since >= GONE_GRACE_MS) ripe.push(key);
+  }
+  for (const key of ripe) delete next[key];
+  kv.set(GONE_SEEN_KEY, JSON.stringify(next));
+  await forgetTracks(ripe);
+  return ripe.length + moves.size;
 }
 
 /**
- * Drops tracks the server deleted from likes, recents, playlists and the queue. The server only reports ids it
- * deleted itself, so pointing the app at another server never removes anything. Throttled unless `force`.
+ * Follows songs the server moved (rewrites their ids) and drops songs it deleted (after GONE_GRACE_MS) from
+ * likes, recents, playlists and the queue. The server only reports ids it deleted itself, so pointing the app at
+ * another server never removes anything. Throttled unless `force`.
  */
 export function pruneGoneTracks(force = false): Promise<number> {
   if (running) return running;

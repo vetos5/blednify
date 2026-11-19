@@ -3,7 +3,8 @@ import { File } from 'expo-file-system';
 import { create, useStore } from 'zustand';
 
 import { ApiError, toApiError, type ApiArtist, type ApiTrack } from './api';
-import { pruneGoneTracks, refreshTrackCopies } from './prune';
+import { libIndex } from './lib-index';
+import { forgetTracks, pruneGoneTracks, refreshTrackCopies } from './prune';
 import { queryClient } from './query-client';
 import { getServerBase, normalizeServerUrl, settingsStore } from './settings';
 import type { AppTrack } from './types';
@@ -77,8 +78,15 @@ export async function checkAdmin(url?: string, token?: string): Promise<{ ok: bo
   }
 }
 
-export async function rescanServer(): Promise<{ added: number; removed: number; total: number }> {
-  const r = await adminRequest<{ added: number; removed: number; total: number }>('POST', '/api/rescan', { timeoutMs: 10 * 60_000 });
+export type RescanResult = { added: number; removed: number; total: number; held?: number };
+
+/**
+ * Rescans the server's music folder. Many missing songs at once are kept and reported as `held` (an unmounted
+ * drive looks the same); pass `confirmRemove` = that number to remove them.
+ */
+export async function rescanServer(confirmRemove?: number): Promise<RescanResult> {
+  const q = confirmRemove ? `?confirmRemove=${confirmRemove}` : '';
+  const r = await adminRequest<RescanResult>('POST', `/api/rescan${q}`, { timeoutMs: 10 * 60_000 });
   refreshCatalog();
   void pruneGoneTracks(true);
   return r;
@@ -92,7 +100,9 @@ export async function deleteFromServer(track: AppTrack): Promise<void> {
   if (track.origin !== 'remote') return;
   await adminRequest<void>('DELETE', `/api/tracks/${encodeURIComponent(track.id)}`);
   refreshCatalog();
-  await pruneGoneTracks(true);
+  // Deleted on purpose from this phone: no grace period (other devices drop it after a day, see prune.ts).
+  if (!libIndex.getState().downloads.has(track.key)) await forgetTracks([track.key]);
+  void pruneGoneTracks(true);
 }
 
 // --- Track info / artist merges ------------------------------------------------------------
