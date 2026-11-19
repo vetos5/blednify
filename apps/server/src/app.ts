@@ -255,7 +255,9 @@ export function createApp(ctx: AppContext): Hono {
   // Which of the given ids were deleted from this server, so the app can drop them from likes/playlists/recents.
   app.get("/api/tracks/gone", (c) => {
     const { ids } = query(c, goneQuery);
-    return c.json({ gone: lib.goneIds([...new Set(ids)]) });
+    const unique = [...new Set(ids)];
+    // `moved`: files a rescan found under a new path; apps rewrite their copies to the new id instead of dropping them.
+    return c.json({ gone: lib.goneIds(unique), moved: Object.fromEntries(lib.movedIds(unique)) });
   });
 
   // Current info of tracks the app keeps copies of (likes, playlists), so admin edits and artist merges reach
@@ -385,9 +387,13 @@ export function createApp(ctx: AppContext): Hono {
     return c.json(track);
   });
 
+  // A rescan that would remove many songs at once (an unmounted drive or folder) holds them and reports `held`;
+  // repeating it with ?confirmRemove=<held> removes them.
+  const rescanQuery = z.object({ confirmRemove: z.coerce.number().int().min(0).default(0) });
   app.post("/api/rescan", admin, async (c) => {
     noIdleTimeout(c);
-    return c.json(await scanner.scan(true));
+    const { confirmRemove } = query(c, rescanQuery);
+    return c.json(await scanner.scan(confirmRemove));
   });
 
   // ---------- playlist imports ----------

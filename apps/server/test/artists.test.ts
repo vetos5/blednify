@@ -115,7 +115,7 @@ describe("artists in the library", () => {
     expect((await json<{ artists: Artist[] }>("/api/search?q=пошлая")).artists.map((a) => a.name)).toEqual(["Poshlaya Molly"]);
 
     // a rescan keeps the merge
-    await srv.ctx.scanner.scan(true);
+    await srv.ctx.scanner.scan();
     expect(await names()).toContain("Poshlaya Molly:4");
 
     expect((await post(`/api/admin/artists/${artistId("Poshlaya Molly")}/rename`, { name: "Muse" })).status).toBe(409);
@@ -145,7 +145,7 @@ describe("artists in the library", () => {
     expect(await res.json()).toMatchObject({ title: "Yonkers (Edit)", artist: "Tyler, The Creator, Someone", edited: true });
     // an admin-typed comma is a list: "Tyler" and "The Creator" are not artists, but nothing else breaks either
     expect(await names()).toContain("Someone:2");
-    await srv.ctx.scanner.scan(true);
+    await srv.ctx.scanner.scan();
     expect((await json<Track>(`/api/tracks/${id}`)).title).toBe("Yonkers (Edit)");
     const reset = await post(`/api/tracks/${id}`, { title: null, artist: "" }, "PATCH");
     expect(await reset.json()).toMatchObject({ title: "Yonkers", artist: "Tyler, The Creator", edited: false });

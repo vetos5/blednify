@@ -86,6 +86,10 @@ CREATE INDEX IF NOT EXISTS artists_name ON artists(name COLLATE NOCASE, id);
 -- downloads by id, so an id must never point at different audio.
 CREATE TABLE IF NOT EXISTS retired_ids (id TEXT PRIMARY KEY) WITHOUT ROWID;
 
+-- a scan found a removed file again under another path (same size, duration and type): old id -> new id, so
+-- apps rewrite their likes/playlists instead of dropping the song (GET /api/tracks/gone reports it as moved)
+CREATE TABLE IF NOT EXISTS track_moves (old_id TEXT PRIMARY KEY, new_id TEXT NOT NULL) WITHOUT ROWID;
+
 -- playlist imports: the job document is JSON (items included), so the shape can grow without migrations
 CREATE TABLE IF NOT EXISTS imports (
   id         TEXT PRIMARY KEY,

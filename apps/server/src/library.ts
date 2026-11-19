@@ -394,12 +394,63 @@ export class Library {
     })();
   }
 
-  /** The subset of `ids` this server deleted (retired and not indexed again). Unknown ids are not "gone". */
+  /**
+   * The subset of `ids` this server deleted (retired and not indexed again). Unknown ids are not "gone", and
+   * neither are moved ones (see `movedIds`): older apps that only know `gone` then keep them instead of
+   * dropping them from likes and playlists.
+   */
   goneIds(ids: readonly string[]): string[] {
     const q = this.sql.query<{ x: number }, [string]>(
       "SELECT 1 AS x FROM retired_ids r WHERE r.id = ?1 AND NOT EXISTS (SELECT 1 FROM tracks t WHERE t.id = ?1)",
     );
-    return ids.filter((id) => q.get(id) != null);
+    const moved = this.movedIds(ids);
+    return ids.filter((id) => !moved.has(id) && q.get(id) != null);
+  }
+
+  /**
+   * Records files a scan found again under another path (old id -> new id): the admin edit and the date added
+   * follow the file. Call before `deleteTracks` of the old ids.
+   */
+  recordMoves(moves: ReadonlyMap<string, string>): void {
+    if (!moves.size) return;
+    const record = this.sql.query<unknown, [string, string]>("INSERT OR REPLACE INTO track_moves (old_id, new_id) VALUES (?, ?)");
+    const edits = this.sql.query<unknown, [string, string]>(
+      "UPDATE OR IGNORE track_edits SET track_id = ?2 WHERE track_id = ?1",
+    );
+    const added = this.sql.query<unknown, [string, string]>(
+      "UPDATE tracks SET added_at = (SELECT added_at FROM tracks WHERE id = ?1) WHERE id = ?2 AND EXISTS (SELECT 1 FROM tracks WHERE id = ?1)",
+    );
+    const sources = this.sql.query<unknown, [string, string]>("UPDATE import_sources SET track_id = ?2 WHERE track_id = ?1");
+    this.sql.transaction(() => {
+      for (const [from, to] of moves) {
+        record.run(from, to);
+        edits.run(from, to);
+        added.run(from, to);
+        sources.run(from, to);
+      }
+    })();
+  }
+
+  /** Of `ids`, the ones that are no longer indexed because their file moved: old id -> current id. */
+  movedIds(ids: readonly string[]): Map<string, string> {
+    const next = this.sql.query<{ new_id: string }, [string]>("SELECT new_id FROM track_moves WHERE old_id = ?");
+    const live = this.sql.query<{ x: number }, [string]>("SELECT 1 AS x FROM tracks WHERE id = ?");
+    const out = new Map<string, string>();
+    for (const id of ids) {
+      if (live.get(id)) continue;
+      // Follow a chain of moves (moved twice) to the id that is indexed now.
+      let cur = id;
+      for (let hop = 0; hop < 16; hop++) {
+        const n = next.get(cur)?.new_id;
+        if (!n || n === id) break;
+        cur = n;
+        if (live.get(cur)) {
+          out.set(id, cur);
+          break;
+        }
+      }
+    }
+    return out;
   }
 
   /** True when `id` is indexed now or was ever deleted; new uploads must pick a path with a fresh id. */

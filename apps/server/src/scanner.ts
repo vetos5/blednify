@@ -6,7 +6,14 @@ import type { ArtworkCache } from "./artwork";
 import { albumId, artistId, audioMime, trackId, UNKNOWN_ALBUM, UNKNOWN_ARTIST } from "./ids";
 import { toTrack, type Library, type Track, type TrackRow } from "./library";
 
-export type ScanResult = { added: number; removed: number; total: number };
+/** `held`: songs whose files are missing but were kept because removing them needs confirmation (see `scan`). */
+export type ScanResult = { added: number; removed: number; total: number; held?: number };
+
+/**
+ * A scan removes at most this many songs on its own. More missing files at once is what an unmounted drive or
+ * folder looks like, and every app would drop those songs from likes and playlists, so they stay until confirmed.
+ */
+export const REMOVE_WITHOUT_CONFIRM = 20;
 
 type FoundFile = { abs: string; rel: string; size: number; mtimeMs: number; birthMs: number };
 
@@ -168,7 +175,7 @@ async function pool<T>(items: T[], n: number, fn: (item: T) => Promise<void>): P
 export class Scanner {
   private running: Promise<ScanResult> | null = null;
   private queued: Promise<ScanResult> | null = null;
-  private queuedAllowEmpty = false;
+  private queuedConfirm = 0;
   /** rel path → "size:mtime" of files that failed to parse; skipped until they change. */
   private readonly unreadable = new Map<string, string>();
 
@@ -186,24 +193,26 @@ export class Scanner {
 
   /**
    * Runs an incremental scan. Calls during a running scan coalesce into one follow-up scan.
-   * A walk that finds no files while tracks are indexed (unmounted or empty volume) removes nothing unless
-   * `allowEmpty` is set (an explicit rescan).
+   * Files found again under another path (same size, duration and type) keep their songs as moves. Missing files
+   * are removed only when there are at most `REMOVE_WITHOUT_CONFIRM` of them and the folder isn't empty (an
+   * unmounted volume), or when `confirmRemove` (an explicit rescan the admin confirmed) is at least their number;
+   * otherwise they are kept and reported as `held`.
    */
-  scan(allowEmpty = false): Promise<ScanResult> {
+  scan(confirmRemove = 0): Promise<ScanResult> {
     if (!this.running) {
-      this.running = this.run(allowEmpty).finally(() => {
+      this.running = this.run(confirmRemove).finally(() => {
         this.running = null;
       });
       return this.running;
     }
-    this.queuedAllowEmpty ||= allowEmpty;
+    this.queuedConfirm = Math.max(this.queuedConfirm, confirmRemove);
     this.queued ??= this.running
       .catch(() => undefined)
       .then(() => {
-        const queuedAllowEmpty = this.queuedAllowEmpty;
+        const queuedConfirm = this.queuedConfirm;
         this.queued = null;
-        this.queuedAllowEmpty = false;
-        return this.scan(queuedAllowEmpty);
+        this.queuedConfirm = 0;
+        return this.scan(queuedConfirm);
       });
     return this.queued;
   }
@@ -244,7 +253,29 @@ export class Scanner {
     return rows.map(toTrack);
   }
 
-  private async run(allowEmpty: boolean): Promise<ScanResult> {
+  /**
+   * Pairs songs whose file disappeared with songs new in this scan that have the same size, duration and type
+   * (a file renamed or moved to another folder): old id -> new id. Only unambiguous pairs count.
+   */
+  private findMoves(missingIds: string[], fresh: TrackRow[]): Map<string, string> {
+    const moves = new Map<string, string>();
+    if (!missingIds.length || !fresh.length) return moves;
+    const fp = (r: Pick<TrackRow, "size" | "duration_ms" | "mime">) => `${r.size}:${r.duration_ms}:${r.mime}`;
+    const byFp = new Map<string, TrackRow[]>();
+    for (const r of fresh) byFp.set(fp(r), [...(byFp.get(fp(r)) ?? []), r]);
+    const oldByFp = new Map<string, string[]>();
+    for (const id of missingIds) {
+      const row = this.lib.trackRow(id);
+      if (row) oldByFp.set(fp(row), [...(oldByFp.get(fp(row)) ?? []), id]);
+    }
+    for (const [key, olds] of oldByFp) {
+      const news = byFp.get(key);
+      if (olds.length === 1 && news?.length === 1) moves.set(olds[0]!, news[0]!.id);
+    }
+    return moves;
+  }
+
+  private async run(confirmRemove: number): Promise<ScanResult> {
     const started = performance.now();
     const { files, unreadable } = await walk(this.musicDir);
     const known = this.lib.fileStates();
@@ -259,10 +290,16 @@ export class Scanner {
     let added = 0;
     let failed = 0;
     let batch: TrackRow[] = [];
+    /** Songs new to the index in this scan: candidates for files that moved. */
+    const fresh: TrackRow[] = [];
     const flush = () => {
       // A file deleted (DELETE /api/tracks/:id) after it was parsed must not come back as a ghost row.
       const live = batch.filter((r) => existsSync(join(this.musicDir, r.path)));
-      if (live.length) added += this.lib.upsertTracks(live).length;
+      if (live.length) {
+        const ids = new Set(this.lib.upsertTracks(live));
+        added += ids.size;
+        for (const r of live) if (ids.has(r.id)) fresh.push(r);
+      }
       batch = [];
     };
     await pool(changed, PARSE_CONCURRENCY, async (f) => {
@@ -286,24 +323,35 @@ export class Scanner {
     // rows under directories that could not be read (e.g. an unmounted symlinked library).
     const present = new Set(files.map((f) => f.rel));
     const inUnreadable = (rel: string) => unreadable.some((d) => rel.startsWith(`${d}/`));
-    let gone = [...known].filter(
+    const missing = [...known].filter(
       ([rel]) => !present.has(rel) && !inUnreadable(rel) && !existsSync(join(this.musicDir, rel)),
     );
-    if (files.length === 0 && known.size > 0 && !allowEmpty) {
+    const moves = this.findMoves(
+      missing.map(([, k]) => k.id),
+      fresh,
+    );
+    let gone = missing.filter(([, k]) => !moves.has(k.id));
+    let held = 0;
+    if ((gone.length > REMOVE_WITHOUT_CONFIRM || (files.length === 0 && gone.length > 0)) && confirmRemove < gone.length) {
       console.warn(
-        `[scan] ${this.musicDir} has no audio files but ${known.size} tracks are indexed; keeping them ` +
-          "(volume not mounted?). Run POST /api/rescan to remove them.",
+        `[scan] ${gone.length} indexed songs are missing from ${this.musicDir}; keeping them (drive or folder not ` +
+          `mounted?). Run POST /api/rescan?confirmRemove=${gone.length} to remove them.`,
       );
+      held = gone.length;
       gone = [];
     }
-    this.lib.deleteTracks(gone.map(([, k]) => k.id));
-    await Promise.all(gone.map(([, k]) => this.art.invalidate(k.id)));
+    this.lib.recordMoves(moves);
+    const removedIds = [...gone.map(([, k]) => k.id), ...moves.keys()];
+    this.lib.deleteTracks(removedIds);
+    await Promise.all(removedIds.map((id) => this.art.invalidate(id)));
 
     this.lib.rebuildAggregates();
-    const result = { added, removed: gone.length, total: this.lib.trackCount() };
+    const result: ScanResult = { added, removed: gone.length, total: this.lib.trackCount() };
+    if (held) result.held = held;
     const ms = Math.round(performance.now() - started);
     console.log(
       `[scan] ${files.length} files, ${changed.length} parsed, +${added} -${gone.length}` +
+        `${moves.size ? `, ${moves.size} moved` : ""}${held ? `, ${held} held` : ""}` +
         `${failed ? `, ${failed} unreadable` : ""}, ${result.total} tracks in ${ms}ms`,
     );
     return result;

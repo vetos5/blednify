@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, utimesSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { albumId, artistId, hash16, trackId } from "../src/ids";
 import type { Album, Artist, Page, Track } from "../src/library";
@@ -97,14 +97,65 @@ describe("scan", () => {
       expect((await s.ctx.scanner.scan()).total).toBe(2);
       // Unmounted volume: the mount point is empty.
       for (const d of ["a", "b"]) rmSync(join(s.musicDir, d), { recursive: true });
-      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 2 });
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 2, held: 2 });
       // Root not readable at all: the scan fails instead of deleting.
       rmSync(s.musicDir, { recursive: true });
       await expect(s.ctx.scanner.scan()).rejects.toThrow(/not readable/);
       expect(s.ctx.lib.trackCount()).toBe(2);
-      // An explicit rescan does reconcile an intentionally emptied folder.
+      // A rescan holds them until the admin confirms, then reconciles an intentionally emptied folder.
       mkdirSync(s.musicDir);
-      expect(await s.ctx.scanner.scan(true)).toEqual({ added: 0, removed: 2, total: 0 });
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 2, held: 2 });
+      expect(await s.ctx.scanner.scan(2)).toEqual({ added: 0, removed: 2, total: 0 });
+    } finally {
+      s.close();
+    }
+  });
+
+  test("many missing songs at once (an unmounted subfolder) are held until a confirmed rescan", async () => {
+    const files: Record<string, Buffer> = { "keep/one.wav": wav({ title: "One" }) };
+    for (let i = 0; i < 25; i++) files[`mnt/${i}.wav`] = wav({ title: `Song ${i}` }, 200 + i);
+    const s = testServer(files);
+    try {
+      expect((await s.ctx.scanner.scan()).total).toBe(26);
+      rmSync(join(s.musicDir, "mnt"), { recursive: true });
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 26, held: 25 });
+      const ids = Array.from({ length: 25 }, (_, i) => trackId(`mnt/${i}.wav`));
+      expect(await (await s.app.request(`/api/tracks/gone?ids=${ids.join(",")}`)).json()).toEqual({ gone: [], moved: {} });
+      // Too small a confirmation still holds; the right one removes them.
+      expect((await s.app.request("/api/rescan?confirmRemove=3", { method: "POST" })).status).toBe(200);
+      expect(s.ctx.lib.trackCount()).toBe(26);
+      const res = await s.app.request("/api/rescan?confirmRemove=25", { method: "POST" });
+      expect(await res.json()).toEqual({ added: 0, removed: 25, total: 1 });
+    } finally {
+      s.close();
+    }
+  });
+
+  test("a moved or renamed file keeps its song: gone reports it as moved, with its edit and date added", async () => {
+    const s = testServer({ "old/place.wav": wav({ title: "Wanderer", artist: "A" }, 333), "old/other.wav": wav({ title: "Stay" }, 444) });
+    try {
+      await s.ctx.scanner.scan();
+      const oldId = trackId("old/place.wav");
+      const before = await (await s.app.request(`/api/tracks/${oldId}`)).json() as Track;
+      expect((await s.app.request(`/api/tracks/${oldId}`, { method: "PATCH", body: JSON.stringify({ title: "Edited" }), headers: { "content-type": "application/json" } })).status).toBe(200);
+      mkdirSync(join(s.musicDir, "new/deeper"), { recursive: true });
+      renameSync(join(s.musicDir, "old/place.wav"), join(s.musicDir, "new/deeper/renamed.wav"));
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 1, removed: 0, total: 2 });
+      const newId = trackId("new/deeper/renamed.wav");
+      const gone = await (await s.app.request(`/api/tracks/gone?ids=${oldId}`)).json();
+      expect(gone).toEqual({ gone: [], moved: { [oldId]: newId } });
+      const moved = await (await s.app.request(`/api/tracks/${newId}`)).json() as Track;
+      expect(moved).toMatchObject({ title: "Edited", edited: true, addedAt: before.addedAt });
+
+      // Moved again: the old id follows the chain to where the file is now.
+      renameSync(join(s.musicDir, "new/deeper/renamed.wav"), join(s.musicDir, "again.wav"));
+      await s.ctx.scanner.scan();
+      expect(await (await s.app.request(`/api/tracks/gone?ids=${oldId}`)).json()).toEqual({ gone: [], moved: { [oldId]: trackId("again.wav") } });
+
+      // Deleted for real: the old id is gone too.
+      rmSync(join(s.musicDir, "again.wav"));
+      await s.ctx.scanner.scan();
+      expect(await (await s.app.request(`/api/tracks/gone?ids=${oldId}`)).json()).toEqual({ gone: [oldId], moved: {} });
     } finally {
       s.close();
     }
@@ -422,8 +473,8 @@ describe("writes", () => {
       const unknown = "0123456789abcdef";
       const gone = await s.app.request(`/api/tracks/gone?ids=${items[0]!.id},${items[1]!.id},${unknown},bogus,${items[0]!.id}`);
       expect(gone.status).toBe(200);
-      expect(await gone.json()).toEqual({ gone: [items[0]!.id] });
-      expect(await (await s.app.request("/api/tracks/gone")).json()).toEqual({ gone: [] });
+      expect(await gone.json()).toEqual({ gone: [items[0]!.id], moved: {} });
+      expect(await (await s.app.request("/api/tracks/gone")).json()).toEqual({ gone: [], moved: {} });
 
       // A new upload with the deleted name must not inherit the retired id (clients cache streams by id).
       const again = await s.app.request("/api/tracks", { method: "POST", body: form(["evilname.wav", wav({ title: "Different" })]) });
