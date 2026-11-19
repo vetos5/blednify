@@ -189,6 +189,7 @@ export default function HomeScreen() {
               renderItem={({ item, index }) => (
                 <AlbumCard
                   width={cardW}
+                  song
                   title={item.title}
                   subtitle={item.artist}
                   artworkUri={item.artworkUri}
