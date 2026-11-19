@@ -215,13 +215,20 @@ async function request<T>(method: 'GET' | 'PUT', key: string, body?: unknown): P
 }
 
 const NEWER_FORMAT = 'This library was saved by a newer Blednify. Update the app to sync it.';
+const DAMAGED = 'The library backup on the server is damaged, so it isn’t synced. Your library on this phone is safe.';
+
+/** Why a server copy this version can't read is left alone: a newer app's format, or a damaged document. */
+function unreadableReason(data: unknown): string {
+  const v = data && typeof data === 'object' ? (data as { v?: unknown }).v : undefined;
+  return typeof v === 'number' && v > 1 ? NEWER_FORMAT : DAMAGED;
+}
 
 async function syncOnce(key: string): Promise<void> {
   let { status, json } = await request<RemoteCopy>('GET', key);
   for (let attempt = 0; attempt < 4; attempt++) {
     const remote = status === 404 || !json ? null : json;
-    // A copy this version can't read (a newer app's format) must never be overwritten with this device's data.
-    if (remote && remote.data != null && !isDoc(remote.data)) throw new ApiError(NEWER_FORMAT);
+    // A copy this version can't read (a newer app's format, or damaged) must never be overwritten with this device's data.
+    if (remote && remote.data != null && !isDoc(remote.data)) throw new ApiError(unreadableReason(remote.data));
     const remoteDoc = remote && isDoc(remote.data) ? remote.data : null;
     const merged = await mergeIntoLocal(remoteDoc);
     if (sameDoc(merged, remoteDoc)) return;
@@ -290,7 +297,7 @@ export async function switchLibraryKey(raw: string, opts: { allowEmpty?: boolean
     const probe = await request<RemoteCopy>('GET', key);
     if ((probe.status === 404 || !probe.json) && !opts.allowEmpty) return { status: 'empty' };
     if (probe.json && probe.json.data != null && !isDoc(probe.json.data))
-      return { status: 'failed', error: NEWER_FORMAT, switched: false };
+      return { status: 'failed', error: unreadableReason(probe.json.data), switched: false };
   } catch (e) {
     return { status: 'failed', error: errorMessage(e), switched: false };
   }
