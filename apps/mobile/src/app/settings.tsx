@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { Image } from 'expo-image';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Platform, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -8,6 +8,7 @@ import {
   appIconById,
   appIconSupported,
   checkAdmin,
+  useAdminInfo,
   formatBytes,
   isCleartextPublic,
   normalizeServerUrl,
@@ -303,6 +304,14 @@ function AdminSection() {
   const [rescanning, setRescanning] = useState(false);
   const [result, setResult] = useState<TestResult>(null);
   const dirty = token.trim() !== settings.adminToken;
+  const info = useAdminInfo();
+  const held = info?.held ?? 0;
+  const canCheck = settings.adminMode && !!settings.adminToken && !!settings.serverUrl;
+
+  // Learn what the server's last scan held back (an unmounted drive), so the admin sees it without rescanning.
+  useEffect(() => {
+    if (canCheck && !info) void checkAdmin();
+  }, [canCheck, info]);
 
   const check = async () => {
     setChecking(true);
@@ -430,7 +439,11 @@ function AdminSection() {
             <ListRow
               leading={<RowIcon name="refresh" />}
               title={rescanning ? 'Rescanning…' : 'Rescan server library'}
-              subtitle="Pick up files added to the music folder directly"
+              subtitle={
+                held > 0
+                  ? `${plural(held, 'song')} missing on the server (drive not mounted?) · tap to review`
+                  : 'Pick up files added to the music folder directly'
+              }
               onPress={rescanning ? undefined : () => void rescan()}
             />
           </View>
