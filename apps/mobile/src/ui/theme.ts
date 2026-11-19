@@ -27,8 +27,10 @@ export type Palette = {
   accentPressed: string;
   accentDeep: string;
   accentSoft: string;
-  /** Text / icons drawn on top of `accent` (dark on light accents). */
+  /** Text / icons drawn on top of `accent`: white or near-black, whichever contrasts more. */
   onAccent: string;
+  /** The accent for text and small glyphs on `bg`: nudged towards the ink until it reads at 4.5:1. */
+  accentText: string;
   danger: string;
   success: string;
   /** Caution highlight (e.g. low-quality audio): amber, readable on the background. */
@@ -170,6 +172,14 @@ function readableMix(ink: RGB, bg: RGB, t: number): RGB {
 
 const WHITE: RGB = [255, 255, 255];
 const BLACK: RGB = [0, 0, 0];
+const ON_ACCENT_DARK: RGB = [10, 10, 12];
+
+/** `color`, mixed towards `ink` just enough for small text on `bg` to read at WCAG AA (4.5:1). */
+function readableTint(color: RGB, ink: RGB, bg: RGB): RGB {
+  let c = color;
+  for (let t = 0.05; contrast(c, bg) < 4.5 && t < 1.001; t += 0.05) c = mix(color, ink, Math.min(1, t));
+  return c;
+}
 
 function derivePalette(bgHex: string, accentHex: string, backdrop: Backdrop): Palette {
   const bg = parseHex(bgHex) ?? [10, 10, 12];
@@ -192,7 +202,8 @@ function derivePalette(bgHex: string, accentHex: string, backdrop: Backdrop): Pa
     accentPressed: toHex(mix(accent, BLACK, 0.16)),
     accentDeep: toHex(mix(accent, BLACK, 0.5)),
     accentSoft: rgba(accent, 0.16),
-    onAccent: luminance(accent) > 0.45 ? '#0A0A0C' : '#FFFFFF',
+    onAccent: contrast(accent, WHITE) >= contrast(accent, ON_ACCENT_DARK) ? '#FFFFFF' : toHex(ON_ACCENT_DARK),
+    accentText: toHex(readableTint(accent, ink, bg)),
     danger: isLight ? '#D92D32' : '#FF5A5F',
     success: isLight ? '#1E9E62' : '#3DD68C',
     warning: isLight ? '#A15C07' : '#F5B83D',

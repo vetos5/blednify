@@ -74,7 +74,7 @@ export function DetailHeader({
         <View style={styles.wideRow}>
           <View style={[styles.art, styles.wideArt, { width: art, height: art }]}>{renderArtwork(art)}</View>
           <View style={styles.wideText}>
-            <Text variant="micro" color={colors.accent}>
+            <Text variant="micro" color={colors.accentText}>
               {eyebrow.toUpperCase()}
             </Text>
             <Text variant="display" numberOfLines={2} style={styles.wideTitle}>
@@ -115,7 +115,7 @@ export function DetailHeader({
       {backdrop}
       <View style={[styles.art, { width: art, height: art }]}>{renderArtwork(art)}</View>
       <View style={styles.text}>
-        <Text variant="micro" color={colors.accent}>
+        <Text variant="micro" color={colors.accentText}>
           {eyebrow.toUpperCase()}
         </Text>
         <Text variant="title" numberOfLines={2}>

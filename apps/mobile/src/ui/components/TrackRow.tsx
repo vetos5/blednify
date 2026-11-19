@@ -75,11 +75,11 @@ function PhoneTrackRow({ track, index, onPress, onMore, leading = 'artwork', sub
         </View>
       )}
       <View style={styles.meta}>
-        <Text variant="bodyStrong" numberOfLines={1} color={isCurrent ? colors.accent : colors.text}>
+        <Text variant="bodyStrong" numberOfLines={1} color={isCurrent ? colors.accentText : colors.text}>
           {track.title}
         </Text>
         <View style={styles.subRow}>
-          {downloaded ? <Icon name="arrow-down-circle" size={14} color={colors.accent} /> : null}
+          {downloaded ? <Icon name="arrow-down-circle" size={14} color={colors.accentText} /> : null}
           {track.origin === 'local' ? <Icon name="phone-portrait-outline" size={14} color={colors.textTertiary} /> : null}
           <Text variant="caption" numberOfLines={1} style={styles.subText}>
             {sub}

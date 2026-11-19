@@ -155,7 +155,7 @@ function Preview({ colors }: { colors: Palette }) {
       <View style={styles.previewRow}>
         <LinearGradient colors={[colors.accent, colors.accentDeep]} style={styles.previewArt} />
         <View style={styles.flex}>
-          <Text variant="bodyStrong" color={colors.accent} numberOfLines={1}>
+          <Text variant="bodyStrong" color={colors.accentText} numberOfLines={1}>
             Now playing
           </Text>
           <Text variant="caption" numberOfLines={1}>

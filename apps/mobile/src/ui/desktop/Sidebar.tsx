@@ -218,7 +218,7 @@ function LibraryItem({
       {art}
       {rail ? null : (
         <View style={styles.itemText}>
-          <Text variant="body" color={active ? colors.accent : colors.text} numberOfLines={1} style={styles.itemTitle}>
+          <Text variant="body" color={active ? colors.accentText : colors.text} numberOfLines={1} style={styles.itemTitle}>
             {label}
           </Text>
           {sub ? (

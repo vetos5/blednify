@@ -161,7 +161,7 @@ function DownloadAction({ track, status, progress }: { track: AppTrack; status: 
         label="Cancel download"
         onPress={() => cancelDownload(track.key)}
         trailing={
-          <Text variant="mono" color={colors.accent}>
+          <Text variant="mono" color={colors.accentText}>
             {Math.round(progress * 100)}%
           </Text>
         }

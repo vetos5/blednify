@@ -172,7 +172,7 @@ function QueueScreenContent() {
                   <View style={styles.nowRow}>
                     <Artwork uri={current.artworkUri} label={current.album || current.title} size={56} recyclingKey={current.key} />
                     <View style={styles.meta}>
-                      <Text variant="bodyStrong" color={colors.accent} numberOfLines={1}>
+                      <Text variant="bodyStrong" color={colors.accentText} numberOfLines={1}>
                         {current.title}
                       </Text>
                       <Text variant="caption" numberOfLines={1}>

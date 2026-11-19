@@ -140,7 +140,7 @@ function QueuePanel() {
       <View style={[styles.row, styles.nowRow]}>
         <Artwork uri={current.artworkUri} label={current.album || current.title} size={40} recyclingKey={current.key} />
         <View style={styles.meta}>
-          <Text variant="bodyStrong" color={colors.accent} numberOfLines={1} style={styles.title}>
+          <Text variant="bodyStrong" color={colors.accentText} numberOfLines={1} style={styles.title}>
             {current.title}
           </Text>
           <Text variant="caption" numberOfLines={1} style={styles.sub}>

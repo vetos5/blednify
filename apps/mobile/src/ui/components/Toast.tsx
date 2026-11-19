@@ -59,7 +59,7 @@ export function ToastHost() {
                   dismissToast(toast.id);
                   onPress();
                 }}>
-                <Text variant="bodyStrong" color={colors.accent}>
+                <Text variant="bodyStrong" color={colors.accentText}>
                   {toast.action.label}
                 </Text>
               </Pressable>

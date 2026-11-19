@@ -49,10 +49,10 @@ export function UpNextCard() {
           accessibilityRole="button"
           accessibilityLabel="Open queue"
           style={({ pressed }) => [styles.linkPressable, pressed && styles.pressed]}>
-          <Text variant="caption" color={colors.accent} style={styles.openQueueText}>
+          <Text variant="caption" color={colors.accentText} style={styles.openQueueText}>
             Open queue
           </Text>
-          <Icon name="chevron-forward" size={14} color={colors.accent} />
+          <Icon name="chevron-forward" size={14} color={colors.accentText} />
         </Pressable>
       </View>
 
