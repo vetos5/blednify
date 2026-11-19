@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { testServer, type TestServer } from "./fixtures";
+import { MAX_LIBRARIES } from "../src/user-library";
 
 const KEY = "k".repeat(10) + "AbC_-123456789";
 const OTHER = "z".repeat(30);
@@ -113,6 +114,20 @@ describe("library backup", () => {
     expect((await call(srv, "DELETE", withKey())).status).toBe(204);
     expect((await call(srv, "GET", withKey())).status).toBe(404);
     expect((await put(0, { again: true })).status).toBe(200);
+  });
+
+  test("new keys are refused with 507 once the server holds MAX_LIBRARIES backups; existing ones still update", async () => {
+    const s = testServer();
+    try {
+      const fill = s.ctx.db.sql.query("INSERT INTO libraries (id, version, data, created_at, updated_at) VALUES (?, 1, '{}', '', '')");
+      for (let i = 0; i < MAX_LIBRARIES - 1; i++) fill.run(`filler-${i}`);
+      const p = (data: unknown, key: string, base = 0) => call(s, "PUT", withKey(key), { baseVersion: base, data });
+      expect((await p({ last: true }, KEY)).status).toBe(200);
+      expect((await p({ one: "too many" }, OTHER)).status).toBe(507);
+      expect((await p({ still: "fine" }, KEY, 1)).status).toBe(200);
+    } finally {
+      s.close();
+    }
   });
 
   test("the raw key is never stored; the id is its sha256", () => {

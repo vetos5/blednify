@@ -6,6 +6,12 @@ import type { Db } from "./db";
 
 const KEY_RE = /^[A-Za-z0-9_-]{20,128}$/;
 export const MAX_LIBRARY_BYTES = 8 * 1024 * 1024;
+/**
+ * New keys are refused (507) past these totals: a personal server has a handful of devices, and with open reads
+ * (no LISTEN_TOKEN) anyone reaching it could otherwise fill DATA_DIR with 8 MiB documents under random keys.
+ */
+export const MAX_LIBRARIES = 500;
+export const MAX_LIBRARIES_TOTAL_BYTES = 256 * 1024 * 1024;
 
 type Fail = (status: 400 | 401 | 404 | 413, error: string) => never;
 type Row = { version: number; data: string; updated_at: string };
@@ -23,6 +29,7 @@ export function userLibraryRoutes(db: Db, listenOk: ((c: Context) => boolean) | 
   const insert = sql.query("INSERT INTO libraries (id, version, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
   const update = sql.query("UPDATE libraries SET version = ?, data = ?, updated_at = ? WHERE id = ?");
   const remove = sql.query("DELETE FROM libraries WHERE id = ?");
+  const totals = sql.query<{ n: number; bytes: number | null }, []>("SELECT COUNT(*) AS n, SUM(length(data)) AS bytes FROM libraries");
 
   // The global listen guard covers GET/HEAD only; this one covers every method.
   r.use("*", async (c, next) => {
@@ -61,9 +68,14 @@ export function userLibraryRoutes(db: Db, listenOk: ((c: Context) => boolean) | 
         const version = current?.version ?? 0;
         if (baseVersion !== version) return { conflict: current ? doc(current) : { version: 0, updatedAt: null, data: null } };
         if (current) update.run(version + 1, text, now, id);
-        else insert.run(id, 1, text, now, now);
+        else {
+          const t = totals.get()!;
+          if (t.n >= MAX_LIBRARIES || (t.bytes ?? 0) + text.length > MAX_LIBRARIES_TOTAL_BYTES) return { full: true as const };
+          insert.run(id, 1, text, now, now);
+        }
         return { ok: { version: version + 1, updatedAt: now } };
       }).immediate();
+      if ("full" in result) return c.json({ error: "server has no room for another library backup" }, 507);
       return "conflict" in result ? c.json(result.conflict, 409) : c.json(result.ok);
     },
   );

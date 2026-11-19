@@ -90,7 +90,7 @@ type Lyrics = {
 | POST | `/api/imports/:id/retry` | `ImportJob` (admin): re-runs failed songs |
 | DELETE | `/api/imports/:id` | `204` (admin): forgets the job; imported songs stay |
 | GET | `/api/library` | `{ version, updatedAt, data }` backup of the app's playlists and likes stored under `X-Library-Key` (20–128 chars of `A-Za-z0-9_-`); `404` when none. Reads need the listen token like every read; `Cache-Control: no-store` |
-| PUT | `/api/library` | JSON `{ baseVersion: integer >= 0, data: object }` → `{ version, updatedAt }`; `409 { version, updatedAt, data }` (the stored copy) when `baseVersion` is not the stored version; `413` above 8 MiB |
+| PUT | `/api/library` | JSON `{ baseVersion: integer >= 0, data: object }` → `{ version, updatedAt }`; `409 { version, updatedAt, data }` (the stored copy) when `baseVersion` is not the stored version; `413` above 8 MiB; `507` when a new key would exceed 500 backups or 256 MiB in total |
 | DELETE | `/api/library` | `204`: forgets the backup for `X-Library-Key` |
 
 `/api/admin/check` also returns `imports: boolean` (yt-dlp + ffmpeg found).

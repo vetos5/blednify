@@ -141,6 +141,9 @@ function listenMatches(c: Context, expected: Buffer): boolean {
 /** Behind Cloudflare / a reverse proxy the request reaches us as http; trust the forwarded scheme. */
 const isHttps = (c: Context) => (c.req.header("x-forwarded-proto") ?? new URL(c.req.url).protocol.replace(":", "")) === "https";
 
+/** Minimum time between album/artist rebuilds while songs are deleted one by one. */
+const DELETE_REBUILD_MS = 2_000;
+
 /** Keeps the connection open for long-running admin requests (Bun's default idle timeout is 10s). */
 function noIdleTimeout(c: Context): void {
   const server = c.env as { timeout?: (req: Request, seconds: number) => void } | undefined;
@@ -162,6 +165,7 @@ export function createApp(ctx: AppContext): Hono {
   const app = new Hono();
   const admin = adminOnly(config.adminToken, config.allowOpenWrites);
   const uploadsDir = join(config.musicDir, "uploads");
+  let deleteRebuild: ReturnType<typeof setTimeout> | null = null;
 
   if (config.logRequests) {
     app.use(async (c, next) => {
@@ -369,7 +373,20 @@ export function createApp(ctx: AppContext): Hono {
     const row = lib.trackRow(param(c)) ?? fail(404, "track not found");
     await rm(join(config.musicDir, row.path), { force: true });
     lib.deleteTracks([row.id]);
-    lib.rebuildAggregates();
+    // A rebuild takes ~1 s at 20k tracks: deleting songs one by one rebuilds at most every couple of seconds
+    // (the first delete of a burst at once, the rest once the burst is over).
+    lib.markAggregatesDirty();
+    if (!lib.flushAggregates(DELETE_REBUILD_MS)) {
+      deleteRebuild ??= setTimeout(() => {
+        deleteRebuild = null;
+        try {
+          lib.flushAggregates();
+        } catch (err) {
+          console.error("[delete] album/artist rebuild failed:", err); // closed on shutdown; it flushes there
+        }
+      }, DELETE_REBUILD_MS);
+      deleteRebuild.unref?.();
+    }
     await art.invalidate(row.id);
     lyrics.forget(row.id);
     return c.body(null, 204);
