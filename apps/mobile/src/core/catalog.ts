@@ -244,14 +244,20 @@ function cachedRemoteAlbum(base: string, id: string): ApiAlbum | undefined {
   return undefined;
 }
 
-/** A remote query failed for a reason other than "not found" (offline, server down, token refused). */
-const failedToReach = (q: { isError: boolean; data: unknown; error: unknown }) =>
-  q.isError && !q.data && !(q.error instanceof ApiError && q.error.status === 404);
+/** Why server content couldn't be shown: `offline` (no network, server down) or `refused` (token not accepted). */
+export type Unreachable = false | 'offline' | 'refused';
+
+/** A remote query failed for a reason other than "not found". */
+function failedToReach(q: { isError: boolean; data: unknown; error: unknown }): Unreachable {
+  if (!q.isError || q.data) return false;
+  if (q.error instanceof ApiError && q.error.status === 404) return false;
+  return q.error instanceof ApiError && (q.error.status === 401 || q.error.status === 403) ? 'refused' : 'offline';
+}
 
 export function useAlbum(
   id: string,
   origin: Origin,
-): { album: AlbumView | null; tracks: AppTrack[]; isLoading: boolean; unreachable: boolean; retry: () => void } {
+): { album: AlbumView | null; tracks: AppTrack[]; isLoading: boolean; unreachable: Unreachable; retry: () => void } {
   const base = useServerBase();
   const seed = useMemo(
     () => (origin === 'remote' && base && id ? cachedRemoteAlbum(base, id) : undefined),
@@ -286,7 +292,7 @@ export function useAlbum(
     origin === 'remote' ? remote.isLoading && !local.data?.length : local.isLoading;
   const { refetch } = remote;
   const retry = useCallback(() => void refetch(), [refetch]);
-  return { album, tracks, isLoading, unreachable: origin === 'remote' && failedToReach(remote), retry };
+  return { album, tracks, isLoading, unreachable: origin === 'remote' ? failedToReach(remote) : false, retry };
 }
 
 export function useArtist(
@@ -297,7 +303,7 @@ export function useArtist(
   albums: AlbumView[];
   tracks: AppTrack[];
   isLoading: boolean;
-  unreachable: boolean;
+  unreachable: Unreachable;
   retry: () => void;
 } {
   const base = useServerBase();
@@ -335,7 +341,7 @@ export function useArtist(
     origin === 'remote' ? remote.isLoading && !local.data?.length : local.isLoading;
   const { refetch } = remote;
   const retry = useCallback(() => void refetch(), [refetch]);
-  return { artist, albums, tracks, isLoading, unreachable: origin === 'remote' && failedToReach(remote), retry };
+  return { artist, albums, tracks, isLoading, unreachable: origin === 'remote' ? failedToReach(remote) : false, retry };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -359,7 +365,7 @@ export function useSearch(q: string): {
   artists: ArtistView[];
   isLoading: boolean;
   /** The server couldn't be searched (offline, down, token refused): results are this device's only. */
-  unreachable: boolean;
+  unreachable: Unreachable;
   retry: () => void;
 } {
   const base = useServerBase();
@@ -381,7 +387,7 @@ export function useSearch(q: string): {
   const ctx = useResolveCtx();
   const { refetch } = remote;
   const retry = useCallback(() => void refetch(), [refetch]);
-  const unreachable = !!base && !!term && !pending && failedToReach(remote);
+  const unreachable: Unreachable = !!base && !!term && !pending ? failedToReach(remote) : false;
   return useMemo(() => {
     if (!term)
       return { tracks: EMPTY_TRACKS, albums: EMPTY_ALBUMS, artists: EMPTY_ARTISTS, isLoading: pending, unreachable: false, retry };

@@ -26,6 +26,7 @@ export {
   useRemoteTracks,
   useSearch,
   useServerStatus,
+  type Unreachable,
 } from './catalog';
 
 // Search history

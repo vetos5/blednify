@@ -30,6 +30,7 @@ import { IconButton } from '@/ui/components/IconButton';
 import { ListRow } from '@/ui/components/ListRow';
 import { PressableScale } from '@/ui/components/PressableScale';
 import { PrimaryButton } from '@/ui/components/PrimaryButton';
+import { ServerUnreachable } from '@/ui/components/ServerUnreachable';
 import { Text } from '@/ui/components/Text';
 import { onTrackMore } from '@/ui/components/TrackActions';
 import { TrackRow } from '@/ui/components/TrackRow';
@@ -83,7 +84,12 @@ export default function SearchScreen() {
   const items: Item[] = [];
   if (deferred) {
     const anyLocal = shownTracks.length > 0 || artists.length > 0 || albums.length > 0;
-    if (unreachable && anyLocal) items.push({ type: 'header', key: 'h:offline', title: 'Server offline · results from this phone' });
+    if (unreachable && anyLocal)
+      items.push({
+        type: 'header',
+        key: 'h:offline',
+        title: unreachable === 'refused' ? 'Access token refused · results from this phone' : 'Server offline · results from this phone',
+      });
     if (shownTracks.length) {
       items.push({ type: 'header', key: 'h:tracks', title: 'Tracks' });
       shownTracks.forEach((track, index) => items.push({ type: 'track', key: track.key, track, index }));
@@ -192,9 +198,7 @@ export default function SearchScreen() {
         </ScrollView>
       ) : items.length === 0 && !isLoading && unreachable ? (
         // Not "no results": the server's music couldn't be searched at all.
-        <EmptyState icon="cloud-offline-outline" title="Can’t reach your server" message="Nothing on this phone matches. Server results show up once it’s back.">
-          <PrimaryButton label="Try again" icon="refresh" variant="surface" onPress={retry} />
-        </EmptyState>
+        <ServerUnreachable reason={unreachable} message="Nothing on this phone matches. Server results show up once it’s back." retry={retry} />
       ) : items.length === 0 && !isLoading ? (
         <EmptyState icon="search" title={`No results for “${deferred}”`} message="Try a different spelling, or search by artist or album." />
       ) : (

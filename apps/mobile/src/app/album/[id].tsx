@@ -15,6 +15,7 @@ import { DockedMiniPlayer } from '@/ui/components/MiniPlayer';
 import { OpenInApp } from '@/ui/components/OpenInApp';
 import { PlaylistPicker } from '@/ui/components/PlaylistPicker';
 import { PrimaryButton } from '@/ui/components/PrimaryButton';
+import { ServerUnreachable } from '@/ui/components/ServerUnreachable';
 import { openShare } from '@/ui/components/ShareSheet';
 import { FloatingBack } from '@/ui/components/ScreenHeader';
 import { openTrackActions } from '@/ui/components/TrackActions';
@@ -112,9 +113,7 @@ export default function AlbumScreen() {
     // Offline with nothing downloaded from it: the album isn't gone, the server just can't be reached.
     body = (
       <View style={[styles.fill, styles.center]}>
-        <EmptyState icon="cloud-offline-outline" title="Can’t reach your server" message="This album opens once the server is back. Downloaded songs play offline.">
-          <PrimaryButton label="Try again" icon="refresh" variant="surface" onPress={retry} />
-        </EmptyState>
+        <ServerUnreachable reason={unreachable} message="This album opens once the server is back. Downloaded songs play offline." retry={retry} />
       </View>
     );
   } else {

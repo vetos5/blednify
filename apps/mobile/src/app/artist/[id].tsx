@@ -17,6 +17,7 @@ import { DockedMiniPlayer } from '@/ui/components/MiniPlayer';
 import { OpenInApp } from '@/ui/components/OpenInApp';
 import { openShare } from '@/ui/components/ShareSheet';
 import { PrimaryButton } from '@/ui/components/PrimaryButton';
+import { ServerUnreachable } from '@/ui/components/ServerUnreachable';
 import { Rail, useRailCardWidth } from '@/ui/components/Rail';
 import { FloatingBack } from '@/ui/components/ScreenHeader';
 import { SectionHeader } from '@/ui/components/SectionHeader';
@@ -50,9 +51,7 @@ export default function ArtistScreen() {
           <Loading />
         ) : unreachable ? (
           <View style={[styles.root, styles.center]}>
-            <EmptyState icon="cloud-offline-outline" title="Can’t reach your server" message="This artist opens once the server is back. Downloaded songs play offline.">
-              <PrimaryButton label="Try again" icon="refresh" variant="surface" onPress={retry} />
-            </EmptyState>
+            <ServerUnreachable reason={unreachable} message="This artist opens once the server is back. Downloaded songs play offline." retry={retry} />
           </View>
         ) : (
           <View style={[styles.root, styles.center]}>
