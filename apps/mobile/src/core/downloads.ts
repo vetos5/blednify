@@ -7,6 +7,7 @@ import { create, useStore } from 'zustand';
 import { trackArtworkUrl, trackStreamUrl } from './api';
 import { getDb, writeTx } from './db';
 import { libIndex, setDownload, setDownloads, type DownloadEntry } from './lib-index';
+import { classifyDownloadError } from './download-errors';
 import { DIRS, deleteQuietly, ensureDir, fileAt } from './paths';
 import { authHeadersFor } from './auth';
 import { refreshQueueTracks } from './player/engine';
@@ -325,13 +326,12 @@ async function run(key: string): Promise<void> {
       // Cancelled: the item was already removed by `cancelDownload`.
     } else {
       const attempts = (dlStore.getState().items[key]?.attempts ?? 0) + 1;
-      const status = httpStatusOf(e);
-      const permanent = status !== null && PERMANENT_STATUS.has(status);
+      const { permanent, message } = classifyDownloadError(errorMessage(e));
       // Most failures are a dropped connection or a server restart: retry a few times with backoff.
       const delay = permanent ? undefined : RETRY_DELAYS_MS[attempts - 1];
       patch(key, {
         status: 'error',
-        error: permanent ? permanentMessage(status) : errorMessage(e),
+        error: message,
         attempts,
         retrying: delay !== undefined,
         permanent,
@@ -355,19 +355,6 @@ async function run(key: string): Promise<void> {
   } finally {
     controllers.delete(key);
   }
-}
-
-/** HTTP errors no retry can fix: the song is gone from the server (or moved), or the token is refused. */
-const PERMANENT_STATUS = new Set([401, 403, 404, 410]);
-
-/** The HTTP status in a native download error ("Unable to download a file: HTTP 404" / "response has status: 404"). */
-export function httpStatusOf(e: unknown): number | null {
-  const m = /(?:\bHTTP|\bstatus:?)\s*(\d{3})\b/i.exec(errorMessage(e));
-  return m ? Number(m[1]) : null;
-}
-
-function permanentMessage(status: number | null): string {
-  return status === 401 || status === 403 ? 'The server refused the access token' : 'No longer on the server';
 }
 
 // --- Public API ------------------------------------------------------------------------------

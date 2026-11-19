@@ -2,6 +2,7 @@ import { AppState } from 'react-native';
 
 import { ApiError, apiGet, queryString, type ApiTrack } from './api';
 import { getDb, writeTx } from './db';
+import { ripenGone } from './gone-grace';
 import { dropQueuedDownloads, renameQueuedDownloads } from './downloads';
 import { removeTrackReferences, rewriteTrackReferences } from './library';
 import { libIndex, loadLibIndexAgain } from './lib-index';
@@ -14,13 +15,8 @@ import type { AppTrack } from './types';
 
 const CHUNK = 200;
 const MIN_INTERVAL_MS = 5 * 60_000;
-/**
- * A song the server reports deleted is dropped from likes and playlists only once it has stayed deleted this long.
- * A drive or folder that was unmounted for a while (the server rescanned without it) then costs nothing: when it is
- * back, the songs are indexed again under the same ids and nothing was removed. Deletes made from this phone
- * (`forgetTracks`) apply at once.
- */
-const GONE_GRACE_MS = 24 * 60 * 60_000;
+// Songs the server deleted wait out GONE_GRACE_MS (gone-grace.ts); deletes made from this phone (`forgetTracks`)
+// apply at once.
 const GONE_SEEN_KEY = 'prune.goneSeen';
 
 let running: Promise<number> | null = null;
@@ -212,19 +208,9 @@ async function run(): Promise<number> {
   }
   await applyMoves(moves);
 
-  // Deleted songs wait out GONE_GRACE_MS (see there); downloaded copies stay everywhere: they play offline.
-  const now = Date.now();
-  const seen = readGoneSeen();
-  const next: Record<string, number> = complete ? {} : { ...seen };
+  // Deleted songs wait out GONE_GRACE_MS; downloaded copies stay everywhere: they play offline.
   const downloads = libIndex.getState().downloads;
-  const ripe: string[] = [];
-  for (const key of gone) {
-    if (downloads.has(key)) continue;
-    const since = seen[key] ?? now;
-    next[key] = since;
-    if (now - since >= GONE_GRACE_MS) ripe.push(key);
-  }
-  for (const key of ripe) delete next[key];
+  const { next, ripe } = ripenGone(readGoneSeen(), gone, (k) => downloads.has(k), Date.now(), complete);
   kv.set(GONE_SEEN_KEY, JSON.stringify(next));
   await forgetTracks(ripe);
   return ripe.length + moves.size;
