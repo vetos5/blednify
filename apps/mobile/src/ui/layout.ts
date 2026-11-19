@@ -1,5 +1,7 @@
 import { Dimensions, Platform, useWindowDimensions } from 'react-native';
 
+import { trackRowHeight } from './theme';
+
 /**
  * Wide layout: the web app in a desktop browser or on a tablet. It swaps the phone's bottom tabs and
  * full-screen player for a sidebar, a persistent player bar and a side panel (see `ui/desktop`).
@@ -51,4 +53,9 @@ const READABLE = { width: '100%', maxWidth: 760, alignSelf: 'center' } as const;
 /** Form-like pages (settings, appearance) keep a readable column in the wide layout instead of stretching. */
 export function useReadableColumn() {
   return useIsWide() ? READABLE : null;
+}
+
+/** `trackRowHeight` for the current system font scale (see theme.ts). */
+export function useTrackRowHeight(): number {
+  return trackRowHeight(useWindowDimensions().fontScale);
 }

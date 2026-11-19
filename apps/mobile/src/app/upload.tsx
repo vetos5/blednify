@@ -157,7 +157,7 @@ const useStyles = makeStyles((colors) => ({
   },
   warn: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   section: { paddingHorizontal: space.lg, paddingTop: space.xl, paddingBottom: space.sm },
-  row: { height: TRACK_ROW_HEIGHT + 8, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingLeft: space.lg, paddingRight: space.sm },
+  row: { minHeight: TRACK_ROW_HEIGHT + 8, paddingVertical: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingLeft: space.lg, paddingRight: space.sm },
   rowIcon: { width: 44, height: 44, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface2 },
   meta: { flex: 1, minWidth: 0, gap: 3 },
   bar: { height: 3, borderRadius: 2, backgroundColor: colors.surface3, overflow: 'hidden' },

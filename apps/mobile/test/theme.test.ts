@@ -8,7 +8,7 @@ mock.module('react-native', () => ({
 mock.module('expo-router', () => ({ DarkTheme: { colors: {}, fonts: {} }, DefaultTheme: { colors: {}, fonts: {} } }));
 mock.module('@/core', () => ({ themeStore: { getState: () => ({ preset: 'blednify' }), subscribe: () => () => {} } }));
 
-const { ACCENT_SWATCHES, BACKGROUND_SWATCHES, THEME_PRESETS, paletteFor } = await import('../src/ui/theme');
+const { ACCENT_SWATCHES, BACKGROUND_SWATCHES, THEME_PRESETS, paletteFor, trackRowHeight, TRACK_ROW_HEIGHT } = await import('../src/ui/theme');
 
 function lum(hex: string): number {
   const h = hex.replace('#', '');
@@ -43,5 +43,16 @@ describe('palette contrast', () => {
       for (const ground of ['bg', 'surface', 'surface2'] as const)
         expect({ name, ground, ok: contrast(p.accentText, p[ground]) >= 4.5 }).toEqual({ name, ground, ok: true });
     }
+  });
+});
+
+describe('trackRowHeight', () => {
+  test('64 at the default font size, never less, and grows with the two text lines', () => {
+    expect(trackRowHeight(1)).toBe(TRACK_ROW_HEIGHT);
+    expect(trackRowHeight(0.85)).toBe(TRACK_ROW_HEIGHT);
+    expect(trackRowHeight(0)).toBe(TRACK_ROW_HEIGHT);
+    // Android's largest setting (2.0): 2 x 40 px of text + 24 px around it.
+    expect(trackRowHeight(2)).toBe(104);
+    expect(trackRowHeight(1.3)).toBeGreaterThan(TRACK_ROW_HEIGHT);
   });
 });

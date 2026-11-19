@@ -259,8 +259,9 @@ function WideLike({ track, visible }: { track: AppTrack; visible: boolean }) {
 
 
 const useStyles = makeStyles((colors) => ({
-  row: { height: TRACK_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.lg, gap: space.md },
-  main: { flex: 1, minWidth: 0, height: TRACK_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', gap: space.md, marginLeft: -space.lg, paddingLeft: space.lg },
+  // minHeight: at a large system font size the two text lines grow the row instead of being clipped.
+  row: { minHeight: TRACK_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.lg, gap: space.md },
+  main: { flex: 1, minWidth: 0, minHeight: TRACK_ROW_HEIGHT, paddingVertical: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.md, marginLeft: -space.lg, paddingLeft: space.lg },
   pressed: { backgroundColor: colors.pressed },
   eqOverlay: {
     ...StyleSheet.absoluteFill,

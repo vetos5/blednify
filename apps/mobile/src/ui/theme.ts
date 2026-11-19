@@ -349,6 +349,15 @@ export const TAB_BAR_HEIGHT = 56;
 export const MINI_PLAYER_HEIGHT = 60;
 export const TRACK_ROW_HEIGHT = 64;
 
+/**
+ * Height of a two-line song row at the system font scale: the title and artist lines (bodyStrong 20 + caption 18 +
+ * gap 2) grow with the font, the 24 px around them don't. 64 at the default scale; never less. For lists that must
+ * know their row height up front (the queue's drag maths); other rows use minHeight and size themselves.
+ */
+export function trackRowHeight(fontScale: number): number {
+  return Math.max(TRACK_ROW_HEIGHT, Math.ceil(40 * (fontScale || 1) + 24));
+}
+
 /** Deep, desaturated tile gradients for artwork fallbacks — brand-red first. */
 const FALLBACK_GRADIENTS: readonly (readonly [string, string])[] = [
   ['#DC3135', '#5C0F12'],
