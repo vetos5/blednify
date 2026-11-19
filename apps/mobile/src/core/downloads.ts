@@ -37,8 +37,10 @@ type Item = {
   retrying?: boolean;
   /** Failed in a way retrying can't fix (song gone from the server, token refused): only the user retries it. */
   permanent?: boolean;
+  /** The server refused the access token: retried once the server URL or token changes. */
+  auth?: boolean;
 };
-type Persisted = { track: string; error?: string; permanent?: boolean };
+type Persisted = { track: string; error?: string; permanent?: boolean; auth?: boolean };
 type DlState = { items: Record<string, Item>; order: string[] };
 
 const dlStore = create<DlState>(() => ({ items: {}, order: [] }));
@@ -99,7 +101,12 @@ function flushQueue() {
   const pending: Persisted[] = order.map((k) => {
     const it = items[k];
     if (it.status !== 'error') return { track: serializeTrack(it.track) };
-    return { track: serializeTrack(it.track), error: it.error ?? 'Failed', ...(it.permanent ? { permanent: true } : {}) };
+    return {
+      track: serializeTrack(it.track),
+      error: it.error ?? 'Failed',
+      ...(it.permanent ? { permanent: true } : {}),
+      ...(it.auth ? { auth: true } : {}),
+    };
   });
   kv.set(QUEUE_KEY, JSON.stringify(pending));
 }
@@ -111,14 +118,19 @@ const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
  * get another go too; on network regain they are left alone, since a new network can't fix them.
  */
 export function retryFailedDownloads(byUser = true): void {
+  requeueFailed((it) => byUser || !it.permanent);
+}
+
+/** Failed items `which` accepts go back in the queue with a fresh round of retries. */
+function requeueFailed(which: (it: Item) => boolean): void {
   const { items } = dlStore.getState();
-  const failed = Object.keys(items).filter((k) => items[k].status === 'error' && (byUser || !items[k].permanent));
+  const failed = Object.keys(items).filter((k) => items[k].status === 'error' && which(items[k]));
   if (!failed.length) return;
   const next = { ...items };
   for (const k of failed) {
     clearTimeout(retryTimers.get(k));
     retryTimers.delete(k);
-    next[k] = { ...items[k], status: 'queued', error: undefined, attempts: 0, retrying: false, permanent: false };
+    next[k] = { ...items[k], status: 'queued', error: undefined, attempts: 0, retrying: false, permanent: false, auth: false };
   }
   dlStore.setState({ items: next });
   persistQueue();
@@ -240,7 +252,7 @@ async function run(key: string): Promise<void> {
   const ctrl = new AbortController();
   const handle = { ctrl, requeue: false };
   controllers.set(key, handle);
-  patch(key, { status: 'downloading', error: undefined, retrying: false, permanent: false });
+  patch(key, { status: 'downloading', error: undefined, retrying: false, permanent: false, auth: false });
   setProgress(key, 0);
 
   const dir = ensureDir(DIRS.music);
@@ -326,7 +338,9 @@ async function run(key: string): Promise<void> {
       // Cancelled: the item was already removed by `cancelDownload`.
     } else {
       const attempts = (dlStore.getState().items[key]?.attempts ?? 0) + 1;
-      const { permanent, message } = classifyDownloadError(errorMessage(e));
+      const raw = errorMessage(e);
+      const { permanent, auth, message } = classifyDownloadError(raw);
+      console.warn(`[downloads] ${track.key} failed: ${raw}`);
       // Most failures are a dropped connection or a server restart: retry a few times with backoff.
       const delay = permanent ? undefined : RETRY_DELAYS_MS[attempts - 1];
       patch(key, {
@@ -335,6 +349,7 @@ async function run(key: string): Promise<void> {
         attempts,
         retrying: delay !== undefined,
         permanent,
+        auth,
       });
       setProgress(key, null);
       persistQueue();
@@ -384,14 +399,14 @@ export function downloadTracks(tracks: AppTrack[]): void {
   void pump();
 }
 
-function restoreFailed(failed: { track: AppTrack; error?: string }[]): void {
+function restoreFailed(failed: { track: AppTrack; error?: string; auth?: boolean }[]): void {
   const { downloads } = libIndex.getState();
   const { items, order } = dlStore.getState();
   const nextItems = { ...items };
   const nextOrder = order.slice();
-  for (const { track, error } of failed) {
+  for (const { track, error, auth } of failed) {
     if (downloads.has(track.key) || nextItems[track.key]) continue;
-    nextItems[track.key] = { track, status: 'error', error: error ?? 'Failed', permanent: true };
+    nextItems[track.key] = { track, status: 'error', error: error ?? 'Failed', permanent: true, auth };
     nextOrder.push(track.key);
   }
   if (nextOrder.length !== order.length) dlStore.setState({ items: nextItems, order: nextOrder });
@@ -461,10 +476,18 @@ export function renameQueuedDownloads(moves: ReadonlyMap<string, string>): void 
   void pump();
 }
 
-/** Clears every failed download from the list (they stay failed songs, not downloads). */
+/**
+ * Clears the failed downloads from the list (they stay songs, not downloads). Rows waiting on an automatic retry
+ * aren't failed yet (the screen doesn't count them either) and stay.
+ */
 export function clearFailedDownloads(): void {
   const { items } = dlStore.getState();
-  for (const k of Object.keys(items)) if (items[k].status === 'error') cancelDownload(k);
+  for (const k of Object.keys(items)) if (items[k].status === 'error' && !items[k].retrying) cancelDownload(k);
+}
+
+/** Keys waiting, running or failed in the download queue (prune follows their moves too). */
+export function queuedDownloadKeys(): string[] {
+  return dlStore.getState().order.slice();
 }
 
 /**
@@ -479,7 +502,8 @@ export async function resumeDownloads(): Promise<void> {
       const saved = (JSON.parse(raw) as (string | Persisted)[]).map((p) => (typeof p === 'string' ? { track: p } : p));
       const parsed = saved.map((p) => ({ p, t: parseTrack(p.track) })).filter((x): x is { p: Persisted; t: AppTrack } => !!x.t);
       downloadTracks(parsed.filter((x) => !x.p.permanent).map((x) => x.t));
-      restoreFailed(parsed.filter((x) => x.p.permanent).map((x) => ({ track: x.t, error: x.p.error })));
+      const refused = (p: Persisted) => p.auth ?? p.error === 'The server refused the access token'; // saved before `auth`
+      restoreFailed(parsed.filter((x) => x.p.permanent).map((x) => ({ track: x.t, error: x.p.error, auth: refused(x.p) })));
     } catch {
       kv.remove(QUEUE_KEY);
     }
@@ -510,6 +534,8 @@ settingsStore.subscribe((s, prev) => {
       .then(applyNetworkPolicy)
       .catch(() => undefined);
   else if (s.downloadOnWifiOnly !== prev.downloadOnWifiOnly || s.serverUrl !== prev.serverUrl) void pump();
+  // Downloads the server refused the token for get another go once the token or server is changed.
+  if (s.accessToken !== prev.accessToken || s.serverUrl !== prev.serverUrl) requeueFailed((it) => it.auth === true);
 });
 
 // --- Hooks -----------------------------------------------------------------------------------
