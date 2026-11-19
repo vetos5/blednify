@@ -10,7 +10,9 @@
  * The JS queue (`entries`) stays authoritative. With repeat-all the upcoming slots wrap to the queue's start.
  * The slot behind the current one is kept equal to what the in-app Previous plays (after a shuffle or reorder it
  * is replaced in place), so native previous lands in the same place; a native previous onto a stale slot is
- * redirected in `onNativeIndex`.
+ * redirected in `onNativeIndex`, and so is a native advance into a slot from before the current song once repeat-all
+ * is off (a wrap the background deferral left). While the phone is offline the window chains only songs that play
+ * without the network (`offlineOnly`), so native doesn't fail into each streamed one.
  *
  * IMPORTANT (Android): expo-audio's Media3 lock-screen session must not observe playlist edits (the
  * notification's MediaController then crashed the app with "Invalid PlayerInfo update"). So auto-advance never
@@ -40,7 +42,8 @@ import { AppState, Platform } from 'react-native';
 
 import { authHeadersFor } from '../auth';
 import { recordRecent } from '../library';
-import { kv } from '../settings';
+import { isLocalHost } from '../hosts';
+import { getServerBase, kv } from '../settings';
 import { fromStorable, resolveTrack } from '../tracks';
 import type { AppTrack, PlayerState, RepeatMode } from '../types';
 import { shuffled } from '../util';
@@ -123,6 +126,8 @@ let awaitingClear = false;
 let lockActive = false;
 /** The native upcoming window differs from the queue; re-sync when it is safe (foreground). */
 let windowDirty = false;
+/** The phone is offline: the native window chains only songs that play without the network (see `desiredTail`). */
+let offlineOnly = false;
 /** Upcoming tracks the native playlist is filled up to after the current one. */
 const WINDOW_AHEAD = 5;
 /**
@@ -422,6 +427,7 @@ type Slot = { uid: number; src: Source; key: string };
 /**
  * Upcoming playable entries that may follow the current one natively, up to WINDOW_AHEAD. With repeat-all the
  * window wraps to the start of the queue (each entry once), so looping the queue is gapless like any advance.
+ * While the phone is offline (`offlineOnly`) streamed entries are left out.
  */
 function desiredTail(): Slot[] {
   const out: Slot[] = [];
@@ -429,6 +435,8 @@ function desiredTail(): Slot[] {
   const upcoming = S().repeat === 'all' ? n - 1 : n - 1 - index;
   for (let k = 1; k <= upcoming && out.length < WINDOW_AHEAD; k++) {
     const i = (index + k) % n;
+    // Offline: chain only songs that play without the network, so native doesn't fail into each streamed one.
+    if (offlineOnly && !resolveTrack(entries[i].track).localUri) continue;
     const src = sourceOf(entries[i].track);
     if (!src) break;
     out.push({ uid: entries[i].uid, src, key: srcKey(src) });
@@ -621,6 +629,7 @@ function stopAll() {
 function onNativeIndex(ci: number) {
   const uid = natUids[ci];
   const forward = ci > natCur;
+  const oneBack = ci === natCur - 1;
   natCur = ci;
   const idx = entries.findIndex((e) => e.uid === uid);
   if (idx < 0) {
@@ -637,12 +646,26 @@ function onNativeIndex(ci: number) {
     return;
   }
   const prevIdx = prevIndexOf(index);
-  if (!forward && index >= 0 && idx >= index && idx !== prevIdx) {
+  // One step back must land on the in-app previous song; a burst of presses (several slots at once) is only
+  // redirected when it didn't go back in the queue at all.
+  if (!forward && index >= 0 && idx !== prevIdx && (oneBack || idx >= index)) {
     // Native went back to a slot that no longer holds the previous song (a shuffle or reorder `syncWindow` hasn't
-    // fixed yet): do what the in-app Previous does instead of continuing from wherever that song is now.
+    // fixed yet, e.g. deferred in the background): do what the in-app Previous does instead of continuing from
+    // wherever that song is now.
     const target = prevIdx ?? index;
     kv.set(POSITION_KEY, 0);
     load(target, wantPlay);
+    return;
+  }
+  if (forward && index >= 0 && idx < index && S().repeat !== 'all') {
+    // Native advanced into a slot from before the current song: a repeat-all wrap left after repeat was turned off,
+    // or a reorder not synced yet (both deferred in the background). Go where the queue goes instead.
+    const ni = nextIndex();
+    kv.set(POSITION_KEY, 0);
+    if (ni === null) {
+      wantPlay = false;
+      load(0, false);
+    } else load(ni, wantPlay);
     return;
   }
   // `next()` already moved JS to this entry and reset its counters; a seek made since then targets this song.
@@ -853,15 +876,42 @@ function nextOfflineIndex(): number | null {
 function skipToOfflineSongIfOffline(uid: number) {
   void getNetworkStateAsync()
     .then((net) => {
-      if (net.isConnected !== false && net.isInternetReachable !== false) return;
+      if (!phoneOffline(net)) return;
       if (!netRetry || netRetry.uid !== uid || entries[index]?.uid !== uid || !wantPlay) return;
       const ni = nextOfflineIndex();
       if (ni === null) return;
       cancelNetworkRetry();
       playerStore.setState({ error: 'Offline · playing your downloads', errorId: S().errorId + 1 });
+      setOfflineOnly(true);
       load(ni, true);
     })
     .catch(() => undefined);
+}
+
+/**
+ * No connection at all, or no internet while the server is on the internet. "No internet" on a home Wi-Fi with a
+ * LAN or Tailscale server is not offline: that server may still answer, so the song is retried in place.
+ */
+function phoneOffline(net: { isConnected?: boolean | null; isInternetReachable?: boolean | null }): boolean {
+  if (net.isConnected === false) return true;
+  return net.isInternetReachable === false && !isLocalHost(getServerBase());
+}
+
+let offlineSub: { remove(): void } | null = null;
+
+/** Enter or leave offline playback; back online, the window is filled with streamed songs again. */
+function setOfflineOnly(on: boolean) {
+  if (offlineOnly === on) return;
+  offlineOnly = on;
+  if (on) {
+    offlineSub ??= addNetworkStateListener((net) => {
+      if (!phoneOffline(net)) setOfflineOnly(false);
+    });
+    return;
+  }
+  offlineSub?.remove();
+  offlineSub = null;
+  syncWindow();
 }
 
 function waitForNetwork(message: string) {
@@ -1170,7 +1220,8 @@ function next() {
   // A lock-screen / media-key skip JS hasn't heard about yet must count, not be overwritten by this one.
   catchUpNative();
   const playing = isActive();
-  const ni = nextIndex();
+  // Offline, Next goes to the next song that plays (like the native window does), not into a streamed one.
+  const ni = (offlineOnly ? nextOfflineIndex() : null) ?? nextIndex();
   if (ni === null) {
     // Next on the last song wraps to the first one and keeps playing (only a song ending on its own stops there).
     if (entries.length) {
