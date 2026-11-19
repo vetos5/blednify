@@ -85,7 +85,7 @@ export default function ArtistScreen() {
               backdropUri={backdrop}
               eyebrow="Artist"
               title={artist.name}
-              meta={[plural(artist.albumCount || albums.length, 'album'), plural(artist.trackCount || tracks.length, 'track')].join(' · ')}
+              meta={[plural(artist.albumCount || albums.length, 'album'), plural(artist.trackCount || tracks.length, 'song')].join(' · ')}
               onPlay={tracks.length ? () => player.playTracks(tracks, 0) : undefined}
               onShuffle={tracks.length ? () => player.playTracks(tracks, undefined, { shuffle: true }) : undefined}
               actions={

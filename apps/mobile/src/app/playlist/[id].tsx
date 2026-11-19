@@ -73,7 +73,7 @@ export default function PlaylistScreen() {
             backdropUri={cover[0]}
             eyebrow="Playlist"
             title={playlist.name}
-            meta={tracks.length ? `${plural(tracks.length, 'track')} · ${humanDuration(totalMs)}` : 'Empty playlist'}
+            meta={tracks.length ? `${plural(tracks.length, 'song')} · ${humanDuration(totalMs)}` : 'Empty playlist'}
             onPlay={tracks.length ? () => player.playTracks(tracks, 0) : undefined}
             onShuffle={tracks.length ? () => player.playTracks(tracks, undefined, { shuffle: true }) : undefined}
             actions={
@@ -86,7 +86,7 @@ export default function PlaylistScreen() {
                     haptic
                     onPress={() => {
                       downloadTracks(remoteMissing);
-                      showToast(`Downloading ${plural(remoteMissing.length, 'track')}`);
+                      showToast(`Downloading ${plural(remoteMissing.length, 'song')}`);
                     }}
                   />
                 ) : null}

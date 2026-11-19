@@ -30,7 +30,7 @@ import { PrimaryButton } from './PrimaryButton';
 import { PromptSheet } from './PromptSheet';
 import { Text } from './Text';
 
-const tracksLabel = (n: number) => `${n} ${n === 1 ? 'track' : 'tracks'}`;
+const tracksLabel = (n: number) => `${n} ${n === 1 ? 'song' : 'songs'}`;
 
 /** Admin actions for a server artist (artist page "…"). */
 export function openArtistAdmin(artist: ArtistView) {

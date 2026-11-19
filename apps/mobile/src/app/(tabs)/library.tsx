@@ -144,7 +144,7 @@ function PlaylistsList() {
         <ListRow
           leading={<PlaylistArtwork uris={item.artworkUris} name={item.name} size={56} />}
           title={item.name}
-          subtitle={`Playlist · ${item.trackCount} ${item.trackCount === 1 ? 'track' : 'tracks'}`}
+          subtitle={`Playlist · ${item.trackCount} ${item.trackCount === 1 ? 'song' : 'songs'}`}
           onPress={() => nav.playlist(item.id)}
           onLongPress={() => {
             haptics.press();
@@ -350,7 +350,7 @@ function DownloadedList() {
         <EmptyState
           icon="arrow-down-circle-outline"
           title="No downloads"
-          message="Download server tracks to listen offline. Long-press a song or use the download button in the player."
+          message="Download server songs to listen offline. Long-press a song or use the download button in the player."
         />
       }
     />
@@ -395,7 +395,7 @@ function TrackList({ tracks, empty, extra }: { tracks: AppTrack[]; empty: ReactE
           <>
           <View style={[styles.playRow, wide && { paddingHorizontal: gutter }]}>
             <Text variant="caption" style={styles.flex}>
-              {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'}
+              {tracks.length} {tracks.length === 1 ? 'song' : 'songs'}
             </Text>
             {extra}
             <IconButton icon="shuffle" label="Shuffle" variant="filled" haptic onPress={() => player.playTracks(tracks, undefined, { shuffle: true })} />

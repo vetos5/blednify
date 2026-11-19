@@ -257,7 +257,7 @@ function ServerPill({
   const styles = useStyles();
   const colors = useColors();
   if (!hasServer) return <Text variant="caption">Local library</Text>;
-  const label = loading ? 'Connecting…' : online ? `Server · ${trackCount.toLocaleString()} tracks` : needsToken ? 'Server needs a token' : 'Server offline';
+  const label = loading ? 'Connecting…' : online ? `Server · ${trackCount.toLocaleString()} songs` : needsToken ? 'Server needs a token' : 'Server offline';
   return (
     <View style={styles.pill}>
       <View style={[styles.pillDot, { backgroundColor: online ? colors.success : loading ? colors.textTertiary : colors.danger }]} />

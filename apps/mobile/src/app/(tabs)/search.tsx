@@ -224,7 +224,7 @@ export default function SearchScreen() {
                   <ListRow
                     leading={<Artwork uri={item.artist.artworkUri} label={item.artist.name} size={48} round recyclingKey={item.key} />}
                     title={item.artist.name}
-                    subtitle={`Artist · ${item.artist.trackCount} ${item.artist.trackCount === 1 ? 'track' : 'tracks'}`}
+                    subtitle={`Artist · ${item.artist.trackCount} ${item.artist.trackCount === 1 ? 'song' : 'songs'}`}
                     chevron
                     onPress={() => {
                       pushSearchArtist(item.artist);

@@ -18,7 +18,7 @@ export function PlaylistPicker({ tracks }: { tracks: AppTrack[] }) {
   const styles = useStyles();
   const colors = useColors();
   const playlists = usePlaylists();
-  const what = tracks.length === 1 ? tracks[0].title : `${tracks.length} tracks`;
+  const what = tracks.length === 1 ? tracks[0].title : `${tracks.length} songs`;
   return (
     <View>
       <SheetHeader title="Add to playlist" subtitle={what} />

@@ -48,7 +48,7 @@ export default function AlbumScreen() {
       player.playTracks(tracks, index);
     };
     const remoteMissing = tracks.filter((t) => t.origin === 'remote' && !t.localUri);
-    const meta = [album.year, plural(album.trackCount || tracks.length, 'track'), album.durationMs > 0 ? humanDuration(album.durationMs) : null]
+    const meta = [album.year, plural(album.trackCount || tracks.length, 'song'), album.durationMs > 0 ? humanDuration(album.durationMs) : null]
       .filter(Boolean)
       .join(' · ');
     body = (
@@ -77,7 +77,7 @@ export default function AlbumScreen() {
                     haptic
                     onPress={() => {
                       downloadTracks(remoteMissing);
-                      showToast(`Downloading ${plural(remoteMissing.length, 'track')}`);
+                      showToast(`Downloading ${plural(remoteMissing.length, 'song')}`);
                     }}
                   />
                 ) : null}

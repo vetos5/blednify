@@ -58,7 +58,7 @@ export default function DownloadsScreen() {
               <View style={styles.divider} />
               <View style={styles.stat}>
                 <Text variant="title">{completedCount.toLocaleString()}</Text>
-                <Text variant="caption">{completedCount === 1 ? 'Track offline' : 'Tracks offline'}</Text>
+                <Text variant="caption">{completedCount === 1 ? 'Song offline' : 'Songs offline'}</Text>
               </View>
             </View>
             <View style={styles.note}>
@@ -70,7 +70,7 @@ export default function DownloadsScreen() {
             <ListRow
               leading={<Artwork uri={null} label="Downloaded" size={44} fallbackIcon="arrow-down" />}
               title="Downloaded music"
-              subtitle={plural(completedCount, 'track')}
+              subtitle={plural(completedCount, 'song')}
               chevron
               onPress={() => nav.library('downloaded')}
             />
@@ -78,7 +78,7 @@ export default function DownloadsScreen() {
               <ListRow
                 leading={<Artwork uri={null} label="Retry" size={44} fallbackIcon="refresh" />}
                 title="Retry failed downloads"
-                subtitle={plural(failed, 'track')}
+                subtitle={plural(failed, 'song')}
                 onPress={() => retryFailedDownloads()}
                 nestedActions
                 trailing={
@@ -97,7 +97,7 @@ export default function DownloadsScreen() {
           <EmptyState
             icon="checkmark-done-outline"
             title="No active downloads"
-            message="Download tracks from the player or any song’s menu to listen offline."
+            message="Download songs from the player or any song’s menu to listen offline."
           />
         }
         renderItem={({ item }) => <ActiveRow item={item} />}

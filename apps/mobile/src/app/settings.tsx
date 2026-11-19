@@ -69,7 +69,7 @@ export default function SettingsScreen() {
       const r = await testServer(normalized, token);
       setResult(
         r.ok
-          ? { ok: true, message: `Connected · ${plural(r.trackCount ?? 0, 'track')}` }
+          ? { ok: true, message: `Connected · ${plural(r.trackCount ?? 0, 'song')}` }
           : { ok: false, message: r.error ?? 'Could not reach server' },
       );
       if (r.ok) haptics.success();
@@ -172,7 +172,7 @@ export default function SettingsScreen() {
                 {status.isLoading
                   ? 'Checking…'
                   : status.online
-                    ? `Online · ${plural(status.trackCount, 'track')}`
+                    ? `Online · ${plural(status.trackCount, 'song')}`
                     : status.needsToken
                       ? 'Server needs the access token below'
                       : 'Offline'}
@@ -354,7 +354,7 @@ function AdminSection() {
       });
       return;
     }
-    showToast(`Rescanned · +${r.added} −${r.removed} · ${plural(r.total, 'track')}`, 'success');
+    showToast(`Rescanned · +${r.added} −${r.removed} · ${plural(r.total, 'song')}`, 'success');
   };
 
   return (

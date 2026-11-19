@@ -29,7 +29,7 @@ export function ArtistCard({ track }: { track: AppTrack }) {
   };
 
   const subtitle = artist?.albumCount
-    ? `${plural(artist.albumCount, 'album')}${artist.trackCount ? ` · ${plural(artist.trackCount, 'track')}` : ''}`
+    ? `${plural(artist.albumCount, 'album')}${artist.trackCount ? ` · ${plural(artist.trackCount, 'song')}` : ''}`
     : 'Artist';
 
   return (
