@@ -194,30 +194,19 @@ export default function SettingsScreen() {
 
         {fileStorageSupported ? (
           <Section title="Downloads" icon="arrow-down-circle-outline">
-            <View style={styles.toggleRow}>
-              <View style={styles.flex}>
-                <Text variant="bodyStrong">Download on Wi-Fi only</Text>
-                <Text variant="caption">Pause downloads on mobile data.</Text>
-              </View>
-              <Switch
-                accessibilityLabel="Download on Wi-Fi only"
-                value={settings.downloadOnWifiOnly}
-                onValueChange={(v) => {
-                  haptics.select();
-                  settings.setDownloadOnWifiOnly(v);
-                }}
-                trackColor={{ false: colors.surface3, true: colors.accent }}
-                thumbColor={colors.white}
-                ios_backgroundColor={colors.surface3}
-              />
-            </View>
+            <ToggleRow
+              title="Download on Wi-Fi only"
+              caption="Pause downloads on mobile data."
+              value={settings.downloadOnWifiOnly}
+              onChange={settings.setDownloadOnWifiOnly}
+            />
           </Section>
         ) : null}
 
         <Section title="Lyrics" icon="text-outline">
           <ToggleRow
             title="Find lyrics online"
-            caption="Look up lyrics for songs imported to this phone on LRCLIB. Server songs use the server’s lookup."
+            caption="Sends the title and artist of songs imported to this phone to LRCLIB (lrclib.net) to find their lyrics. Server songs use the server’s lookup."
             value={settings.lyricsOnline}
             onChange={settings.setLyricsOnline}
           />

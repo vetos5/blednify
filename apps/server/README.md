@@ -46,7 +46,6 @@ symlinks are followed. A file that fails to parse is logged and skipped until it
 | `YTDLP_PIP` | unset (image: `/opt/ytdlp/bin/pip`) | When set, yt-dlp is upgraded at start and daily, since YouTube breaks old releases. |
 | `LRCLIB_URL` | `https://lrclib.net` | Base URL of an LRCLIB-compatible API (for a self-hosted mirror). |
 | `WEB_DIR` | unset | Folder with the built web app (`tools/web/deploy.sh <dir>`), served at `/` with cross-origin isolation headers. Unset: nothing is served outside `/api`. |
-| `PUBLIC` | unset | Reserved. Has no effect yet. |
 | `LOG_REQUESTS` | `1` | `0` turns off the one-line-per-request log. Successful `/api/health` calls are never logged. |
 
 ## Playlist imports

@@ -35,8 +35,6 @@ export type Config = {
   };
   /** Built web app (`expo export -p web` output) served at `/`; null when WEB_DIR is unset. */
   webDir: string | null;
-  /** Reserved; currently has no effect. */
-  public: boolean;
   logRequests: boolean;
 };
 
@@ -70,7 +68,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       ytdlpPip: env.YTDLP_PIP?.trim() || null,
     },
     webDir: env.WEB_DIR?.trim() ? resolve(env.WEB_DIR.trim()) : null,
-    public: /^(1|true|yes)$/i.test(env.PUBLIC ?? ""),
     logRequests: env.NODE_ENV !== "test" && env.LOG_REQUESTS !== "0",
   };
 }
