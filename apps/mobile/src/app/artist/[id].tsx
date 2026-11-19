@@ -38,7 +38,7 @@ export default function ArtistScreen() {
   const insets = useSafeAreaInsets();
   const chromeInset = useChromeInset('detail');
   const cardW = useRailCardWidth();
-  const { artist, albums, tracks, isLoading } = useArtist(params.id, origin);
+  const { artist, albums, tracks, isLoading, unreachable, retry } = useArtist(params.id, origin);
   const { adminMode, adminToken } = useSettings();
   const admin = adminMode && !!adminToken;
 
@@ -48,6 +48,12 @@ export default function ArtistScreen() {
         <Backdrop />
         {isLoading ? (
           <Loading />
+        ) : unreachable ? (
+          <View style={[styles.root, styles.center]}>
+            <EmptyState icon="cloud-offline-outline" title="Can’t reach your server" message="This artist opens once the server is back. Downloaded songs play offline.">
+              <PrimaryButton label="Try again" icon="refresh" variant="surface" onPress={retry} />
+            </EmptyState>
+          </View>
         ) : (
           <View style={[styles.root, styles.center]}>
             <EmptyState icon="person-outline" title="Artist not found" message="It may have been removed from the server or this device.">

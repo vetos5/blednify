@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 
 import {
@@ -222,7 +222,14 @@ function cachedRemoteAlbum(base: string, id: string): ApiAlbum | undefined {
   return undefined;
 }
 
-export function useAlbum(id: string, origin: Origin): { album: AlbumView | null; tracks: AppTrack[]; isLoading: boolean } {
+/** A remote query failed for a reason other than "not found" (offline, server down, token refused). */
+const failedToReach = (q: { isError: boolean; data: unknown; error: unknown }) =>
+  q.isError && !q.data && !(q.error instanceof ApiError && q.error.status === 404);
+
+export function useAlbum(
+  id: string,
+  origin: Origin,
+): { album: AlbumView | null; tracks: AppTrack[]; isLoading: boolean; unreachable: boolean; retry: () => void } {
   const base = useServerBase();
   const seed = useMemo(
     () => (origin === 'remote' && base && id ? cachedRemoteAlbum(base, id) : undefined),
@@ -255,13 +262,22 @@ export function useAlbum(id: string, origin: Origin): { album: AlbumView | null;
   }, [remote.data, remote.isError, seed, base, tracks]);
   const isLoading =
     origin === 'remote' ? remote.isLoading && !local.data?.length : local.isLoading;
-  return { album, tracks, isLoading };
+  const { refetch } = remote;
+  const retry = useCallback(() => void refetch(), [refetch]);
+  return { album, tracks, isLoading, unreachable: origin === 'remote' && failedToReach(remote), retry };
 }
 
 export function useArtist(
   id: string,
   origin: Origin,
-): { artist: ArtistView | null; albums: AlbumView[]; tracks: AppTrack[]; isLoading: boolean } {
+): {
+  artist: ArtistView | null;
+  albums: AlbumView[];
+  tracks: AppTrack[];
+  isLoading: boolean;
+  unreachable: boolean;
+  retry: () => void;
+} {
   const base = useServerBase();
   const remote = useQuery({
     queryKey: ['artist', base, id],
@@ -295,7 +311,9 @@ export function useArtist(
   }, [remote.data, base, tracks]);
   const isLoading =
     origin === 'remote' ? remote.isLoading && !local.data?.length : local.isLoading;
-  return { artist, albums, tracks, isLoading };
+  const { refetch } = remote;
+  const retry = useCallback(() => void refetch(), [refetch]);
+  return { artist, albums, tracks, isLoading, unreachable: origin === 'remote' && failedToReach(remote), retry };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -318,6 +336,9 @@ export function useSearch(q: string): {
   albums: AlbumView[];
   artists: ArtistView[];
   isLoading: boolean;
+  /** The server couldn't be searched (offline, down, token refused): results are this device's only. */
+  unreachable: boolean;
+  retry: () => void;
 } {
   const base = useServerBase();
   const term = useDebounced(q.trim(), 200);
@@ -336,8 +357,12 @@ export function useSearch(q: string): {
     placeholderData: (prev) => prev,
   });
   const ctx = useResolveCtx();
+  const { refetch } = remote;
+  const retry = useCallback(() => void refetch(), [refetch]);
+  const unreachable = !!base && !!term && !pending && failedToReach(remote);
   return useMemo(() => {
-    if (!term) return { tracks: EMPTY_TRACKS, albums: EMPTY_ALBUMS, artists: EMPTY_ARTISTS, isLoading: pending };
+    if (!term)
+      return { tracks: EMPTY_TRACKS, albums: EMPTY_ALBUMS, artists: EMPTY_ARTISTS, isLoading: pending, unreachable: false, retry };
     const needle = term.toLowerCase();
     const localTracks = (local.data ?? EMPTY_TRACKS).map((t) => resolveTrack(t, ctx));
     const r = remote.data;
@@ -351,6 +376,8 @@ export function useSearch(q: string): {
       albums: dedupeById([...localAlbums, ...(r ? r.albums.map((a) => fromApiAlbum(a, base)) : EMPTY_ALBUMS)]),
       artists: dedupeById([...localArtists, ...(r ? r.artists.map((a) => fromApiArtist(a, base)) : EMPTY_ARTISTS)]),
       isLoading: pending || local.isLoading || (!!base && remote.isLoading),
+      unreachable,
+      retry,
     };
-  }, [term, pending, local.data, local.isLoading, remote.data, remote.isLoading, base, ctx]);
+  }, [term, pending, local.data, local.isLoading, remote.data, remote.isLoading, base, ctx, unreachable, retry]);
 }

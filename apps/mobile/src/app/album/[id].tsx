@@ -36,7 +36,7 @@ export default function AlbumScreen() {
   const insets = useSafeAreaInsets();
   const chromeInset = useChromeInset('detail');
   // What's cached draws on the first frame; anything fetched mid-slide waits until the push has finished.
-  const { album, tracks, isLoading } = useHeldDuringTransition(useAlbum(params.id, origin));
+  const { album, tracks, isLoading, unreachable, retry } = useHeldDuringTransition(useAlbum(params.id, origin));
 
   // One tree for every state: the theme backdrop, chrome and back button mount once, so the album
   // arriving (often mid-transition on a first visit) only adds the list instead of rebuilding the screen.
@@ -108,6 +108,15 @@ export default function AlbumScreen() {
     );
   } else if (isLoading) {
     body = <Loading />;
+  } else if (unreachable) {
+    // Offline with nothing downloaded from it: the album isn't gone, the server just can't be reached.
+    body = (
+      <View style={[styles.fill, styles.center]}>
+        <EmptyState icon="cloud-offline-outline" title="Can’t reach your server" message="This album opens once the server is back. Downloaded songs play offline.">
+          <PrimaryButton label="Try again" icon="refresh" variant="surface" onPress={retry} />
+        </EmptyState>
+      </View>
+    );
   } else {
     body = (
       <View style={[styles.fill, styles.center]}>
