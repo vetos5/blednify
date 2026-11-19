@@ -39,7 +39,7 @@ import { nav, type LibraryFilter } from '@/ui/nav';
 import { useDesk } from '@/ui/desktop/store';
 import { useChromeInset , useGlassSurface } from '@/ui/chrome';
 import { useGutter, useIsWide } from '@/ui/layout';
-import { makeStyles, radius, space, useColors } from '@/ui/theme';
+import { makeStyles, radius, space, useColors, withAlpha } from '@/ui/theme';
 
 type Item =
   | { type: 'header'; key: string; title: string }
@@ -316,20 +316,25 @@ function RecentHistoryRow({
   );
 }
 
-type BrowseItem = { label: string; icon: IconName; colors: readonly [string, string]; filter?: LibraryFilter; action?: () => void };
+/** `hue`: the tile's own colour. Tiles are tinted with it over the theme's card colour, so they follow the theme. */
+type BrowseItem = { label: string; icon: IconName; hue: string; filter?: LibraryFilter; action?: () => void };
 const BROWSE_ALL: BrowseItem[] = [
-  { label: 'Liked songs', icon: 'heart', colors: ['#DC3135', '#6A1214'], filter: 'liked' },
-  { label: 'Downloaded', icon: 'arrow-down-circle', colors: ['#2B5876', '#101C2B'], filter: 'downloaded' },
-  { label: 'On this device', icon: 'phone-portrait', colors: ['#1F8A70', '#0B2B24'], filter: 'device' },
-  { label: 'Playlists', icon: 'list', colors: ['#8E2DE2', '#2A0E4A'], filter: 'playlists' },
-  { label: 'Albums', icon: 'disc', colors: ['#C06C2B', '#3B1A08'], filter: 'albums' },
-  { label: 'Import music', icon: 'add-circle', colors: ['#4A5BD6', '#141A45'], action: importMusic },
+  { label: 'Liked songs', icon: 'heart', hue: '#E5484D', filter: 'liked' },
+  { label: 'Downloaded', icon: 'arrow-down-circle', hue: '#3B82F6', filter: 'downloaded' },
+  { label: 'On this device', icon: 'phone-portrait', hue: '#1FA67A', filter: 'device' },
+  { label: 'Playlists', icon: 'list', hue: '#9B5DE5', filter: 'playlists' },
+  { label: 'Albums', icon: 'disc', hue: '#E07B39', filter: 'albums' },
+  { label: 'Import music', icon: 'add-circle', hue: '#5B6CF0', action: importMusic },
 ];
 const FILE_ONLY = new Set(['Downloaded', 'On this device', 'Import music']);
 const BROWSE = fileStorageSupported ? BROWSE_ALL : BROWSE_ALL.filter((b) => !FILE_ONLY.has(b.label));
 
 function BrowseGrid() {
   const styles = useStyles();
+  const colors = useColors();
+  // A wash of the tile's hue over the card colour: strong enough to tell the tiles apart, light enough that the
+  // theme's own text colour reads on it in light and dark themes alike.
+  const [from, to] = colors.isLight ? [0.26, 0.08] : [0.42, 0.1];
   const wide = useIsWide();
   const gutter = useGutter();
   return (
@@ -345,13 +350,16 @@ function BrowseGrid() {
             accessibilityLabel={b.label}
             style={[styles.tile, wide && styles.tileWide]}
             onPress={() => (b.action ? b.action() : nav.library(b.filter))}>
-            <LinearGradient colors={b.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tileFill}>
-              {/* The tiles are fixed dark gradients in every theme, so the label is always white. */}
-              <Text variant="subheading" numberOfLines={2} style={styles.tileLabel} color="#FFFFFF">
+            <LinearGradient
+              colors={[withAlpha(b.hue, from), withAlpha(b.hue, to)]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.tileFill}>
+              <Text variant="subheading" numberOfLines={2} style={styles.tileLabel}>
                 {b.label}
               </Text>
               <View style={styles.tileIcon}>
-                <Icon name={b.icon} size={40} color="rgba(255,255,255,0.85)" />
+                <Icon name={b.icon} size={40} color={withAlpha(b.hue, 0.9)} />
               </View>
             </LinearGradient>
           </PressableScale>
@@ -395,9 +403,9 @@ const useStyles = makeStyles((colors) => ({
   browse: { paddingTop: space.md },
   browseTitle: { marginBottom: space.md },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
-  tile: { width: '47.5%', flexGrow: 1, height: 96, borderRadius: radius.md, overflow: 'hidden' },
-  tileWide: { width: '23%', flexGrow: 0, height: 120 },
-  tileFill: { flex: 1, padding: space.md },
+  tile: { width: '47.5%', flexGrow: 1, minHeight: 96, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.surface2 },
+  tileWide: { width: '23%', flexGrow: 0, minHeight: 120 },
+  tileFill: { flex: 1, padding: space.md, paddingBottom: space.xl + space.md },
   tileLabel: { maxWidth: '70%' },
   tileIcon: { position: 'absolute', right: -4, bottom: -6, transform: [{ rotate: '-14deg' }] },
 }));
