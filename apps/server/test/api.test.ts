@@ -223,6 +223,28 @@ describe("scan", () => {
     }
   });
 
+  test("an unmounted drive with copies elsewhere is held: no song moves to its backup copy", async () => {
+    const files: Record<string, Buffer> = { "keep/one.wav": wav({ title: "One" }) };
+    for (let i = 0; i < 25; i++) {
+      files[`mnt/${i}.wav`] = wav({ title: `Song ${i}` }, 200 + i);
+      files[`backup/${i}.wav`] = files[`mnt/${i}.wav`]!;
+    }
+    const s = testServer(files);
+    try {
+      expect((await s.ctx.scanner.scan()).total).toBe(51);
+      rmSync(join(s.musicDir, "mnt"), { recursive: true });
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 51, held: 25, heldFolders: ["mnt"] });
+      const ids = Array.from({ length: 25 }, (_, i) => trackId(`mnt/${i}.wav`));
+      expect(await (await s.app.request(`/api/tracks/gone?ids=${ids.join(",")}`)).json()).toEqual({ gone: [], moved: {} });
+      // Confirmed: now the songs do follow their copies instead of being removed.
+      expect(await s.ctx.scanner.scan(25)).toEqual({ added: 0, removed: 0, total: 26 });
+      const r = (await (await s.app.request(`/api/tracks/gone?ids=${ids[0]}`)).json()) as { moved: Record<string, string> };
+      expect(r.moved).toEqual({ [ids[0]!]: trackId("backup/0.wav") });
+    } finally {
+      s.close();
+    }
+  });
+
   test("two identical copies: deleting one of two missing twins is not guessed", async () => {
     const same = wav({ title: "Twin" }, 557);
     const s = testServer({ "x/1.wav": same, "x/2.wav": same, "y/3.wav": same, "keep.wav": wav({ title: "K" }, 444) });

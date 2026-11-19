@@ -396,20 +396,30 @@ export class Scanner {
     const missing = [...known].filter(
       ([rel]) => !present.has(rel) && !inUnreadable(rel) && !existsSync(join(this.musicDir, rel)),
     );
-    const moves = this.findMoves(
+    let moves = this.findMoves(
       missing.map(([, k]) => k.id),
       fresh,
     );
+    // Whether to hold is decided on moves to songs new in this scan only. Pairing with a copy that was already
+    // indexed (a backup folder) is a guess that only stands when the removal goes ahead: on an unmounted drive it
+    // would move every song with an identical copy elsewhere, and its references would never come back.
+    const freshIds = new Set(fresh.map((r) => r.id));
+    const freshMoves = new Map([...moves].filter(([, to]) => freshIds.has(to)));
+    const strictGone = missing.filter(([, k]) => !freshMoves.has(k.id));
     let gone = missing.filter(([, k]) => !moves.has(k.id));
     let held = 0;
     let heldFolders: string[] = [];
-    if ((gone.length > REMOVE_WITHOUT_CONFIRM || (files.length === 0 && gone.length > 0)) && confirmRemove < gone.length) {
+    if (
+      (strictGone.length > REMOVE_WITHOUT_CONFIRM || (files.length === 0 && strictGone.length > 0)) &&
+      confirmRemove < strictGone.length
+    ) {
       console.warn(
-        `[scan] ${gone.length} indexed songs are missing from ${this.musicDir}; keeping them (drive or folder not ` +
-          `mounted?). Run POST /api/rescan?confirmRemove=${gone.length} to remove them.`,
+        `[scan] ${strictGone.length} indexed songs are missing from ${this.musicDir}; keeping them (drive or folder ` +
+          `not mounted?). Run POST /api/rescan?confirmRemove=${strictGone.length} to remove them.`,
       );
-      held = gone.length;
-      heldFolders = foldersOf(gone.map(([rel]) => rel));
+      moves = freshMoves;
+      held = strictGone.length;
+      heldFolders = foldersOf(strictGone.map(([rel]) => rel));
       gone = [];
     }
     this.lib.recordMoves(moves);
