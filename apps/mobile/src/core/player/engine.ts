@@ -625,6 +625,23 @@ function onStatus(s: NativeStatus) {
     return;
   }
 
+  // Native reports the window's end once (`didJustFinish`); later events only say "loaded, not playing, at the
+  // end". If that one event was dropped (it arrived mid-edit or mid-skip), finish here instead of reading it as
+  // a pause below, which left playback stopped for good.
+  if (
+    wantPlay &&
+    started &&
+    s.isLoaded &&
+    !s.playing &&
+    !s.isBuffering &&
+    natCur === natUids.length - 1 &&
+    s.duration > 0 &&
+    s.currentTime >= s.duration - 0.3
+  ) {
+    onNativeFinished();
+    return;
+  }
+
   // External play/pause (lock screen, headset, audio focus) updates intent once settled.
   if (s.isLoaded && !s.isBuffering && pendingSeekMs === null && Date.now() - lastCommandAt > 1_000)
     wantPlay = s.playing;
@@ -1011,15 +1028,16 @@ function seekTo(ms: number) {
 function next() {
   // A lock-screen / media-key skip JS hasn't heard about yet must count, not be overwritten by this one.
   catchUpNative();
+  const playing = isActive();
   const ni = nextIndex();
   if (ni === null) {
+    // Next on the last song wraps to the first one and keeps playing (only a song ending on its own stops there).
     if (entries.length) {
       kv.set(POSITION_KEY, 0);
-      load(0, false);
+      load(0, playing);
     }
     return;
   }
-  const playing = isActive();
   // After a JS skip whose event hasn't arrived yet, native is already on `advancingTo.ci`.
   const slot = advancingTo?.ci ?? natCur;
   if (nat && natReady && !natBroken && natUids[slot + 1] === entries[ni].uid && nat.trackCount === natUids.length) {
