@@ -356,6 +356,17 @@ const clearTombstone = (db: SQLiteDatabase, kind: 'playlist' | 'like', id: strin
 const touch = (db: SQLiteDatabase, id: string) =>
   db.runAsync('UPDATE playlists SET updated_at = ? WHERE id = ?', nowIso(), id);
 
+/**
+ * Marks a playlist changed by normalisation (a moved song's id rewritten), not by the user: 1 ms newer than its
+ * own stamp, not "now". The rewrite still syncs, but it can't beat another device's real edit made since (playlist
+ * sync is last-writer-wins); that device rewrites the id itself.
+ */
+const nudge = (db: SQLiteDatabase, id: string) =>
+  db.runAsync(
+    `UPDATE playlists SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', updated_at, '+0.001 seconds') WHERE id = ?`,
+    id,
+  );
+
 const invalidatePlaylist = (id: string) => invalidate(libKeys.playlists, libKeys.playlist(id));
 
 export async function createPlaylist(name: string): Promise<string> {
@@ -561,7 +572,7 @@ export async function rewriteTrackReferences(db: SQLiteDatabase, moves: Readonly
     );
     if (!affected.length) continue;
     await db.runAsync(`UPDATE playlist_tracks SET key = ?, ${set} WHERE key = ?`, toKey, toKey, toId, from);
-    for (const { playlist_id } of affected) await touch(db, playlist_id);
+    for (const { playlist_id } of affected) await nudge(db, playlist_id);
   }
   renameSearchTracks(moves);
   return orphans;
