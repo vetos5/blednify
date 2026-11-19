@@ -45,7 +45,7 @@ function toTabs(href: Parameters<typeof router.navigate>[0]) {
   else router.navigate(href);
 }
 
-export type LibraryFilter = 'playlists' | 'recents' | 'albums' | 'songs' | 'liked' | 'downloaded' | 'device';
+export type LibraryFilter = 'playlists' | 'recents' | 'albums' | 'artists' | 'songs' | 'liked' | 'downloaded' | 'device';
 
 export function parseOrigin(v: string | string[] | undefined): Origin {
   return v === 'local' ? 'local' : 'remote';

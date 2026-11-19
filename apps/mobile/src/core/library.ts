@@ -9,6 +9,7 @@ import { absUri } from './paths';
 import { invalidate, libKeys } from './query-client';
 import {
   albumsFromTracks,
+  artistsFromTracks,
   compareAlbumOrder,
   currentCtx,
   EMPTY_TRACKS,
@@ -20,7 +21,7 @@ import {
   useResolvedTracks,
 } from './tracks';
 import { removeSearchTracks } from './search-history';
-import type { AlbumView, AppTrack, Origin, Playlist } from './types';
+import type { AlbumView, AppTrack, ArtistView, Origin, Playlist } from './types';
 import { randomId } from './util';
 
 // ---------------------------------------------------------------------------------------------
@@ -117,6 +118,12 @@ export function useLocalTracks(): AppTrack[] {
 export function useLocalAlbums(): AlbumView[] {
   const tracks = useLocalTracks();
   return useMemo(() => albumsFromTracks(tracks).sort((a, b) => a.title.localeCompare(b.title)), [tracks]);
+}
+
+/** Artists of imported and downloaded songs. */
+export function useLocalArtists(): ArtistView[] {
+  const tracks = useLocalTracks();
+  return useMemo(() => artistsFromTracks(tracks), [tracks]);
 }
 
 /** Tracks of a local album (imported) or of a remote album that are downloaded (offline fallback). */

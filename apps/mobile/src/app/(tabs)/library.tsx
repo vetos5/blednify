@@ -1,6 +1,6 @@
 import { FlashList } from '@shopify/flash-list';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState, type ReactElement, type ReactNode } from 'react';
+import { useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,14 +9,17 @@ import {
   useAllRemoteTracks,
   useLikedTracks,
   useLocalAlbums,
+  useLocalArtists,
   useLocalTracks,
   usePlaylists,
   useRecentlyPlayed,
   useRemoteAlbums,
+  useRemoteArtists,
   useServerBase,
   useSettings,
   type AlbumView,
   type AppTrack,
+  type ArtistView,
   fileStorageSupported,
 } from '@/core';
 import { importMusic } from '@/ui/actions';
@@ -44,6 +47,7 @@ const FILTERS: { key: LibraryFilter; label: string }[] = [
   { key: 'playlists', label: 'Playlists' },
   { key: 'recents', label: 'Recents' },
   { key: 'albums', label: 'Albums' },
+  { key: 'artists', label: 'Artists' },
   { key: 'songs', label: 'Songs' },
   { key: 'liked', label: 'Liked' },
   ...(fileStorageSupported
@@ -89,6 +93,7 @@ export default function LibraryScreen() {
       {filter === 'playlists' ? <PlaylistsList /> : null}
       {filter === 'recents' ? <RecentsList /> : null}
       {filter === 'albums' ? <AlbumsGrid /> : null}
+      {filter === 'artists' ? <ArtistsGrid /> : null}
       {filter === 'songs' ? <SongsList /> : null}
       {filter === 'liked' ? <LikedList /> : null}
       {filter === 'downloaded' ? <DownloadedList /> : null}
@@ -207,6 +212,66 @@ function AlbumsGrid() {
         </View>
       )}
     />
+    </View>
+  );
+}
+
+function ArtistsGrid() {
+  const styles = useStyles();
+  const chromeInset = useChromeInset('tabs');
+  const wide = useIsWide();
+  const [pageW, setPageW] = useState(0);
+  const columns = wide && pageW > 0 ? Math.max(3, Math.floor((pageW - 48) / 190)) : 2;
+  const local = useLocalArtists();
+  const { artists: remote, isLoading, isError, refetch } = useRemoteArtists();
+  const artists = useMemo(() => {
+    const seen = new Set<string>();
+    const out: ArtistView[] = [];
+    for (const a of [...remote, ...local]) {
+      const k = `${a.origin}:${a.id}`;
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push(a);
+      }
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }, [remote, local]);
+  return (
+    <View style={styles.flex} onLayout={(e) => setPageW(e.nativeEvent.layout.width)}>
+      <FlashList
+        key={columns}
+        data={artists}
+        numColumns={columns}
+        keyExtractor={(a) => `${a.origin}:${a.id}`}
+        contentContainerStyle={{ paddingHorizontal: wide ? space.xl : space.md, paddingBottom: space.xl + chromeInset }}
+        ListEmptyComponent={
+          isLoading ? (
+            <Loading />
+          ) : isError ? (
+            <EmptyState icon="cloud-offline-outline" title="Can’t reach your server" message="Artists from the server show up here once it’s back.">
+              <PrimaryButton label="Try again" icon="refresh" variant="surface" onPress={refetch} />
+            </EmptyState>
+          ) : (
+            <EmptyState
+              icon="person-outline"
+              title="No artists yet"
+              message={fileStorageSupported ? 'Import music or connect your server to see artists here.' : 'Connect your server to see artists here.'}
+            />
+          )
+        }
+        renderItem={({ item }) => (
+          <View style={styles.gridCell}>
+            <AlbumCard
+              title={item.name}
+              subtitle={`${item.trackCount} ${item.trackCount === 1 ? 'song' : 'songs'}`}
+              artworkUri={item.artworkUri}
+              round
+              recyclingKey={`${item.origin}:${item.id}`}
+              onPress={() => nav.artist(item.id, item.origin)}
+            />
+          </View>
+        )}
+      />
     </View>
   );
 }

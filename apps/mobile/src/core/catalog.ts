@@ -205,6 +205,28 @@ export function useRemoteAlbums(): { albums: AlbumView[]; isLoading: boolean; is
   return { albums, isLoading: q.isLoading, isError: q.isError && !q.data, refetch: () => void refetch() };
 }
 
+async function fetchAllArtists(base: string, signal: AbortSignal): Promise<ApiArtist[]> {
+  const out: ApiArtist[] = [];
+  for (;;) {
+    const page = await apiGet<ApiPage<ApiArtist>>(base, `/api/artists${queryString({ limit: 500, offset: out.length })}`, signal);
+    out.push(...page.items);
+    if (!page.items.length || out.length >= page.total) return out;
+  }
+}
+
+export function useRemoteArtists(): { artists: ArtistView[]; isLoading: boolean; isError: boolean; refetch(): void } {
+  const base = useServerBase();
+  const q = useQuery({
+    queryKey: ['artists', base],
+    queryFn: ({ signal }) => fetchAllArtists(base, signal),
+    enabled: !!base,
+    staleTime: CATALOG_STALE_MS,
+  });
+  const artists = useMemo(() => (q.data ? q.data.map((a) => fromApiArtist(a, base)) : EMPTY_ARTISTS), [q.data, base]);
+  const { refetch } = q;
+  return { artists, isLoading: q.isLoading, isError: q.isError && !q.data, refetch: () => void refetch() };
+}
+
 /**
  * A server album the app already holds from a list (home, library, an artist page, search). Its header can be
  * drawn on the first frame instead of after the album request, so opening an album does not pop in mid-transition.
