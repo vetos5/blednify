@@ -149,7 +149,8 @@ function Transport({ disabled }: { disabled: boolean }) {
       <Tip label={isPlaying ? 'Pause' : 'Play'} shortcut="Space">
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+          accessibilityLabel={isPlaying ? 'Pause' : isBuffering ? 'Loading, pause' : 'Play'}
+          accessibilityState={{ busy: isBuffering && !isPlaying, disabled: !!disabled }}
           disabled={disabled}
           onPress={player.togglePlay}
           style={({ hovered, pressed }) => [

@@ -300,9 +300,17 @@ const QueueRow = memo(function QueueRow({
             style={styles.rowPress}
             accessibilityRole="button"
             accessibilityLabel={spokenLabel(`Play ${track.title} by ${track.artist}`)}
-            accessibilityActions={[{ name: 'delete', label: 'Remove from queue' }]}
+            // Dragging the handle has no screen-reader equivalent, so moving is offered as actions too.
+            accessibilityActions={[
+              { name: 'delete', label: 'Remove from queue' },
+              { name: 'moveUp', label: 'Move up' },
+              { name: 'moveDown', label: 'Move down' },
+            ]}
             onAccessibilityAction={(e) => {
-              if (e.nativeEvent.actionName === 'delete') remove();
+              const action = e.nativeEvent.actionName;
+              if (action === 'delete') remove();
+              else if (action === 'moveUp' && rel > 0) player.moveInQueue(abs, abs - 1);
+              else if (action === 'moveDown' && rel < drag.count.get() - 1) player.moveInQueue(abs, abs + 1);
             }}
             android_ripple={{ color: colors.ripple }}
             onPress={() => {
@@ -312,7 +320,7 @@ const QueueRow = memo(function QueueRow({
             <RowBody track={track} />
           </Pressable>
           <GestureDetector gesture={handle}>
-            <View style={styles.handle} accessibilityLabel="Reorder" accessibilityHint="Drag up or down">
+            <View style={styles.handle} accessible={false} importantForAccessibility="no-hide-descendants" aria-hidden>
               <Icon name="reorder-three" size={24} color={colors.textSecondary} />
             </View>
           </GestureDetector>

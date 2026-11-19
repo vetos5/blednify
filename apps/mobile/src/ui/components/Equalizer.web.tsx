@@ -19,7 +19,7 @@ export function Equalizer({ playing, size = 14, color: colorProp }: { playing: b
   const reducedMotion = useReducedMotion();
   const color = colorProp ?? accent;
   return (
-    <View style={[styles.row, { height: size, width: size }]} accessibilityLabel={playing ? 'Playing' : 'Paused'}>
+    <View style={[styles.row, { height: size, width: size }]} accessible={false} importantForAccessibility="no-hide-descendants" aria-hidden>
       {BARS.map((bar, i) => (
         <Animated.View
           key={i}

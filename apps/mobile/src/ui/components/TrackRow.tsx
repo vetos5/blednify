@@ -29,6 +29,9 @@ export type TrackRowProps = {
 
 const ARTWORK = 48;
 
+/** Spoken after the title for the current song (0 = not current, 1 = paused, 2 = playing). */
+const PLAY_STATE = ['', ', paused', ', now playing'] as const;
+
 function TrackRowImpl(props: TrackRowProps) {
   return useIsWide() ? <WideTrackRow {...props} /> : <PhoneTrackRow {...props} />;
 }
@@ -48,7 +51,8 @@ function PhoneTrackRow({ track, index, onPress, onMore, leading = 'artwork', sub
     <View style={styles.row}>
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={spokenLabel(`${track.title} by ${track.artist}`)}
+      // The playing bars are decorative; the row itself says it is the current song.
+      accessibilityLabel={spokenLabel(`${track.title} by ${track.artist}${PLAY_STATE[state]}`)}
       onPress={() => onPress(index)}
       onLongPress={onMore ? () => onMore(track, index) : undefined}
       delayLongPress={320}
@@ -123,7 +127,7 @@ function WideTrackRow({ track, index, onPress, onMore, leading = 'artwork', subt
       // A group, not a button: the row holds its own buttons (play, artist, album, like, more), and a screen
       // reader can't reach buttons nested inside one.
       accessibilityRole="group"
-      accessibilityLabel={`${track.title} by ${track.artist}`}
+      accessibilityLabel={`${track.title} by ${track.artist}${PLAY_STATE[state]}`}
       accessibilityHint="Double-click or press Enter to play"
       onPress={(e) => {
         const detail = (e.nativeEvent as unknown as { detail?: number }).detail;

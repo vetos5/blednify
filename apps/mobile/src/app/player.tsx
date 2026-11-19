@@ -475,7 +475,9 @@ function Transport() {
       />
       <PressableScale
         accessibilityRole="button"
-        accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+        // While loading or retrying the tap pauses (cancels the pending start), so say so.
+        accessibilityLabel={isPlaying ? 'Pause' : isBuffering ? 'Loading, pause' : 'Play'}
+        accessibilityState={{ busy: isBuffering && !isPlaying }}
         activeScale={0.9}
         onPress={() => {
           haptics.press();

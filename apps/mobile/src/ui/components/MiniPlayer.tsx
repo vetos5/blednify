@@ -103,9 +103,16 @@ export function MiniPlayer() {
             </Animated.View>
           </Pressable>
           {isBuffering && !isPlaying ? (
-            <View style={styles.spinner}>
+            // Still a button: tapping while loading or retrying pauses, like the full player.
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Loading, pause"
+              accessibilityState={{ busy: true }}
+              hitSlop={8}
+              onPress={player.togglePlay}
+              style={styles.spinner}>
               <ActivityIndicator size="small" color={colors.text} />
-            </View>
+            </Pressable>
           ) : (
             <IconButton icon={isPlaying ? 'pause' : 'play'} label={isPlaying ? 'Pause' : 'Play'} size={26} haptic onPress={player.togglePlay} />
           )}
