@@ -90,6 +90,17 @@ CREATE TABLE IF NOT EXISTS retired_ids (id TEXT PRIMARY KEY) WITHOUT ROWID;
 -- apps rewrite their likes/playlists instead of dropping the song (GET /api/tracks/gone reports it as moved)
 CREATE TABLE IF NOT EXISTS track_moves (old_id TEXT PRIMARY KEY, new_id TEXT NOT NULL) WITHOUT ROWID;
 
+-- size, duration and type of each retired id's file, so a file deleted in one scan and put back (under any path)
+-- in a later one is still recognised as that song (see Scanner.findMoves)
+CREATE TABLE IF NOT EXISTS retired_fp (
+  id          TEXT PRIMARY KEY,
+  size        INTEGER NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  mime        TEXT NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS retired_fp_key ON retired_fp(size, duration_ms);
+CREATE INDEX IF NOT EXISTS tracks_fp ON tracks(size, duration_ms);
+
 -- playlist imports: the job document is JSON (items included), so the shape can grow without migrations
 CREATE TABLE IF NOT EXISTS imports (
   id         TEXT PRIMARY KEY,

@@ -385,8 +385,12 @@ export class Library {
     const del = this.sql.query<unknown, [string]>("DELETE FROM tracks WHERE id = ?");
     const retire = this.sql.query<unknown, [string]>("INSERT OR IGNORE INTO retired_ids (id) VALUES (?)");
     const forget = this.sql.query<unknown, [string]>("DELETE FROM track_edits WHERE track_id = ?");
+    const fingerprint = this.sql.query<unknown, [string]>(
+      "INSERT OR REPLACE INTO retired_fp (id, size, duration_ms, mime) SELECT id, size, duration_ms, mime FROM tracks WHERE id = ?",
+    );
     this.sql.transaction(() => {
       for (const id of ids) {
+        fingerprint.run(id);
         del.run(id);
         retire.run(id);
         forget.run(id);
@@ -429,6 +433,30 @@ export class Library {
         sources.run(from, to);
       }
     })();
+  }
+
+  /** Indexed songs whose file has this size, duration and type (candidates for a file that moved). */
+  trackIdsByFingerprint(fp: Pick<TrackRow, "size" | "duration_ms" | "mime">): string[] {
+    return this.sql
+      .query<{ id: string }, [number, number, string]>("SELECT id FROM tracks WHERE size = ? AND duration_ms = ? AND mime = ?")
+      .all(fp.size, fp.duration_ms, fp.mime)
+      .map((r) => r.id);
+  }
+
+  /**
+   * Retired ids whose file had this size, duration and type and that aren't followed to another song already
+   * (a song deleted in an earlier scan whose file is back now).
+   */
+  retiredIdsByFingerprint(fp: Pick<TrackRow, "size" | "duration_ms" | "mime">): string[] {
+    return this.sql
+      .query<{ id: string }, [number, number, string]>(
+        `SELECT r.id FROM retired_fp r
+         WHERE r.size = ? AND r.duration_ms = ? AND r.mime = ?
+           AND NOT EXISTS (SELECT 1 FROM track_moves m WHERE m.old_id = r.id)
+           AND NOT EXISTS (SELECT 1 FROM tracks t WHERE t.id = r.id)`,
+      )
+      .all(fp.size, fp.duration_ms, fp.mime)
+      .map((r) => r.id);
   }
 
   /** Of `ids`, the ones that are no longer indexed because their file moved: old id -> current id. */

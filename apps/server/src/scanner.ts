@@ -191,6 +191,12 @@ export class Scanner {
     return this.running !== null;
   }
 
+  /** Songs the last finished scan kept although their files are missing (0 when none); shown to the admin. */
+  get held(): number {
+    return this.lastHeld;
+  }
+  private lastHeld = 0;
+
   /**
    * Runs an incremental scan. Calls during a running scan coalesce into one follow-up scan.
    * Files found again under another path (same size, duration and type) keep their songs as moves. Missing files
@@ -254,23 +260,40 @@ export class Scanner {
   }
 
   /**
-   * Pairs songs whose file disappeared with songs new in this scan that have the same size, duration and type
-   * (a file renamed or moved to another folder): old id -> new id. Only unambiguous pairs count.
+   * Pairs songs whose file disappeared with indexed songs that have the same size, duration and type (a file
+   * renamed or moved to another folder, or copied there in an earlier scan and deleted here now): old id -> new
+   * id. Songs new in this scan are also paired with ids retired by an earlier scan (deleted, then put back). Only
+   * unambiguous pairs count: one old id and one candidate per fingerprint.
    */
   private findMoves(missingIds: string[], fresh: TrackRow[]): Map<string, string> {
     const moves = new Map<string, string>();
-    if (!missingIds.length || !fresh.length) return moves;
     const fp = (r: Pick<TrackRow, "size" | "duration_ms" | "mime">) => `${r.size}:${r.duration_ms}:${r.mime}`;
-    const byFp = new Map<string, TrackRow[]>();
-    for (const r of fresh) byFp.set(fp(r), [...(byFp.get(fp(r)) ?? []), r]);
-    const oldByFp = new Map<string, string[]>();
+    const missing = new Set(missingIds);
+    const oldByFp = new Map<string, { row: TrackRow; ids: string[] }>();
     for (const id of missingIds) {
       const row = this.lib.trackRow(id);
-      if (row) oldByFp.set(fp(row), [...(oldByFp.get(fp(row)) ?? []), id]);
+      if (!row) continue;
+      const g = oldByFp.get(fp(row));
+      if (g) g.ids.push(id);
+      else oldByFp.set(fp(row), { row, ids: [id] });
     }
-    for (const [key, olds] of oldByFp) {
-      const news = byFp.get(key);
-      if (olds.length === 1 && news?.length === 1) moves.set(olds[0]!, news[0]!.id);
+    const targets = new Set<string>();
+    for (const { row, ids } of oldByFp.values()) {
+      if (ids.length !== 1) continue;
+      const live = this.lib.trackIdsByFingerprint(row).filter((id) => !missing.has(id));
+      if (live.length === 1) {
+        moves.set(ids[0]!, live[0]!);
+        targets.add(live[0]!);
+      }
+    }
+    // Deleted in an earlier scan and back now (under any path).
+    const freshByFp = new Map<string, TrackRow[]>();
+    for (const r of fresh) if (!targets.has(r.id)) freshByFp.set(fp(r), [...(freshByFp.get(fp(r)) ?? []), r]);
+    for (const rows of freshByFp.values()) {
+      if (rows.length !== 1) continue;
+      const retired = this.lib.retiredIdsByFingerprint(rows[0]!);
+      if (retired.length === 1 && this.lib.trackIdsByFingerprint(rows[0]!).length === 1)
+        moves.set(retired[0]!, rows[0]!.id);
     }
     return moves;
   }
@@ -341,13 +364,14 @@ export class Scanner {
       gone = [];
     }
     this.lib.recordMoves(moves);
-    const removedIds = [...gone.map(([, k]) => k.id), ...moves.keys()];
+    const removedIds = [...gone.map(([, k]) => k.id), ...missing.map(([, k]) => k.id).filter((id) => moves.has(id))];
     this.lib.deleteTracks(removedIds);
     await Promise.all(removedIds.map((id) => this.art.invalidate(id)));
 
     this.lib.rebuildAggregates();
     const result: ScanResult = { added, removed: gone.length, total: this.lib.trackCount() };
     if (held) result.held = held;
+    this.lastHeld = held;
     const ms = Math.round(performance.now() - started);
     console.log(
       `[scan] ${files.length} files, ${changed.length} parsed, +${added} -${gone.length}` +

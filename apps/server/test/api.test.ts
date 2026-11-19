@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, utimesSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { albumId, artistId, hash16, trackId } from "../src/ids";
 import type { Album, Artist, Page, Track } from "../src/library";
@@ -119,6 +119,8 @@ describe("scan", () => {
       expect((await s.ctx.scanner.scan()).total).toBe(26);
       rmSync(join(s.musicDir, "mnt"), { recursive: true });
       expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 26, held: 25 });
+      // The admin sees it without rescanning by hand.
+      expect(((await (await s.app.request("/api/admin/check", { method: "POST" })).json()) as { held: number }).held).toBe(25);
       const ids = Array.from({ length: 25 }, (_, i) => trackId(`mnt/${i}.wav`));
       expect(await (await s.app.request(`/api/tracks/gone?ids=${ids.join(",")}`)).json()).toEqual({ gone: [], moved: {} });
       // Too small a confirmation still holds; the right one removes them.
@@ -126,6 +128,7 @@ describe("scan", () => {
       expect(s.ctx.lib.trackCount()).toBe(26);
       const res = await s.app.request("/api/rescan?confirmRemove=25", { method: "POST" });
       expect(await res.json()).toEqual({ added: 0, removed: 25, total: 1 });
+      expect(s.ctx.scanner.held).toBe(0);
     } finally {
       s.close();
     }
@@ -156,6 +159,62 @@ describe("scan", () => {
       rmSync(join(s.musicDir, "again.wav"));
       await s.ctx.scanner.scan();
       expect(await (await s.app.request(`/api/tracks/gone?ids=${oldId}`)).json()).toEqual({ gone: [oldId], moved: {} });
+    } finally {
+      s.close();
+    }
+  });
+
+  test("copy, scan, then delete the original: the song follows the copy instead of being gone", async () => {
+    const s = testServer({ "old/song.wav": wav({ title: "Copied" }, 555), "old/other.wav": wav({ title: "Stay" }, 444) });
+    try {
+      await s.ctx.scanner.scan();
+      const oldId = trackId("old/song.wav");
+      mkdirSync(join(s.musicDir, "new"));
+      writeFileSync(join(s.musicDir, "new/song.wav"), readFileSync(join(s.musicDir, "old/song.wav")));
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 1, removed: 0, total: 3 });
+      rmSync(join(s.musicDir, "old/song.wav"));
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 2 });
+      expect(await (await s.app.request(`/api/tracks/gone?ids=${oldId}`)).json()).toEqual({
+        gone: [],
+        moved: { [oldId]: trackId("new/song.wav") },
+      });
+    } finally {
+      s.close();
+    }
+  });
+
+  test("deleted in one scan and put back in a later one: the old id follows the file", async () => {
+    const s = testServer({ "a/song.wav": wav({ title: "Back" }, 556), "a/other.wav": wav({ title: "Stay" }, 444) });
+    try {
+      await s.ctx.scanner.scan();
+      const oldId = trackId("a/song.wav");
+      const bytes = readFileSync(join(s.musicDir, "a/song.wav"));
+      rmSync(join(s.musicDir, "a/song.wav"));
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 1, total: 1 });
+      expect(await (await s.app.request(`/api/tracks/gone?ids=${oldId}`)).json()).toEqual({ gone: [oldId], moved: {} });
+      mkdirSync(join(s.musicDir, "b"));
+      writeFileSync(join(s.musicDir, "b/song.wav"), bytes);
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 1, removed: 0, total: 2 });
+      expect(await (await s.app.request(`/api/tracks/gone?ids=${oldId}`)).json()).toEqual({
+        gone: [],
+        moved: { [oldId]: trackId("b/song.wav") },
+      });
+    } finally {
+      s.close();
+    }
+  });
+
+  test("two identical copies: deleting one of two missing twins is not guessed", async () => {
+    const same = wav({ title: "Twin" }, 557);
+    const s = testServer({ "x/1.wav": same, "x/2.wav": same, "y/3.wav": same, "keep.wav": wav({ title: "K" }, 444) });
+    try {
+      await s.ctx.scanner.scan();
+      // Two of three identical files go: both missing ids share one fingerprint, so neither is paired.
+      rmSync(join(s.musicDir, "x"), { recursive: true });
+      await s.ctx.scanner.scan();
+      const ids = [trackId("x/1.wav"), trackId("x/2.wav")];
+      const r = (await (await s.app.request(`/api/tracks/gone?ids=${ids.join(",")}`)).json()) as { gone: string[] };
+      expect(r.gone.sort()).toEqual(ids.sort());
     } finally {
       s.close();
     }

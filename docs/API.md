@@ -61,7 +61,7 @@ type Lyrics = {
 | POST | `/api/session` | `204` + `Set-Cookie: blednify_listen=…; Path=/api; HttpOnly; SameSite=Strict` (`Secure` behind https). Needs `Authorization: Bearer <LISTEN_TOKEN>`; `401` otherwise. The web app uses it because `<audio>`/`<img>` cannot send headers: every read also accepts this cookie. No-op `204` without `LISTEN_TOKEN`. |
 | DELETE | `/api/session` | `204`, clears the cookie |
 | GET | `/api/tracks?q=&limit=50&offset=0&sort=added\|title\|artist` | `Page<Track>` (limit max 500) |
-| GET | `/api/tracks/gone?ids=a,b,…` | `{ gone: string[]; moved: Record<string, string> }` — the given ids this server deleted (max 500; unknown ids are not "gone"), and old id → current id for files a scan found again under another path (same size, duration and type). Apps rewrite moved ids in likes/playlists instead of dropping them; moved ids are never in `gone` |
+| GET | `/api/tracks/gone?ids=a,b,…` | `{ gone: string[]; moved: Record<string, string> }` — the given ids this server deleted (max 500; unknown ids are not "gone"), and old id → current id for files a scan found again under another path (same size, duration and type): moved or renamed, copied in an earlier scan and the original deleted now, or deleted in one scan and put back in a later one. Only unambiguous pairs count (one missing id and one candidate per fingerprint). Apps rewrite moved ids in likes/playlists instead of dropping them; moved ids are never in `gone` |
 | GET | `/api/tracks/lookup?ids=a,b,…` | `{ items: Track[] }` — current info of the given ids (max 500; unknown ids left out), so the app can refresh its stored copies |
 | GET | `/api/tracks/:id` | `Track` |
 | GET | `/api/tracks/:id/stream` | audio bytes; MUST support `Range` (206), `Accept-Ranges`, `Content-Length`, correct `Content-Type`, `ETag`, `Cache-Control: public, max-age=31536000, immutable` (`private, …` when `LISTEN_TOKEN` is set) |
@@ -80,7 +80,7 @@ type Lyrics = {
 | POST | `/api/admin/artists/merge` | JSON `{ ids: string[] (2..20), name }` → `Artist & { albums; tracks }` (admin): shows them as one artist (the first id's) named `name` |
 | POST | `/api/admin/artists/:id/rename` | JSON `{ name }` → `Artist & { albums; tracks }` (admin); `409` when the name is another artist (merge instead) |
 | POST | `/api/admin/artists/:id/unmerge` | `Artist & { albums; tracks }` (admin): undoes every merge into it and its chosen name |
-| POST | `/api/admin/check` | `{ ok: true, maxUploadBytes: number, formats: string[] }` (admin; verifies the token) |
+| POST | `/api/admin/check` | `{ ok: true, maxUploadBytes: number, formats: string[], held: number }` (admin; verifies the token). `held`: songs the last scan kept although their files are missing (see `/api/rescan`), 0 when none |
 | POST | `/api/rescan?confirmRemove=N` | `{ added: number; removed: number; total: number; held?: number }` (admin). A scan removes more than 20 missing songs at once (or every song, when the folder is empty) only when `confirmRemove` is at least their number; otherwise it keeps them and reports `held` (an unmounted drive or folder looks the same). The startup scan never confirms |
 | POST | `/api/imports` | JSON `{ url, artist?, album? }` (Spotify playlist/album/track, SoundCloud set/track, YouTube playlist/video) → `202 ImportJob` (admin); `422 { error }` for an unsupported link or a server without yt-dlp/ffmpeg |
 | GET | `/api/imports` | `{ items: Omit<ImportJob, "items">[] }` newest first (50) |

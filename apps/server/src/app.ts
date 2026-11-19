@@ -323,6 +323,8 @@ export function createApp(ctx: AppContext): Hono {
       maxUploadBytes: config.maxUploadBytes,
       formats: ["mp3", "flac", "m4a", "aac", "ogg", "opus", "wav"],
       imports: await importer.isAvailable(),
+      // Songs the last scan kept although their files are missing (unmounted drive?); the app offers to review.
+      held: scanner.held,
     }),
   );
 
