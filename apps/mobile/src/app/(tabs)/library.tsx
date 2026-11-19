@@ -1,7 +1,7 @@
 import { FlashList } from '@shopify/flash-list';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ReactElement, type ReactNode } from 'react';
-import { ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -188,9 +188,7 @@ function AlbumsGrid() {
       contentContainerStyle={{ paddingHorizontal: wide ? space.xl : space.md, paddingBottom: space.xl + chromeInset }}
       ListHeaderComponent={
         unreachable && albums.length > 0 ? (
-          <Text variant="caption" style={styles.gridNote}>
-            {offlineNote(unreachable, 'albums')}
-          </Text>
+          <OfflineNote why={unreachable} what="albums" />
         ) : null
       }
       ListEmptyComponent={
@@ -256,9 +254,7 @@ function ArtistsGrid() {
         contentContainerStyle={{ paddingHorizontal: wide ? space.xl : space.md, paddingBottom: space.xl + chromeInset }}
         ListHeaderComponent={
           offlineWithLocal ? (
-            <Text variant="caption" style={styles.gridNote}>
-              {offlineNote(unreachable, 'artists')}
-            </Text>
+            <OfflineNote why={unreachable} what="artists" />
           ) : null
         }
         ListEmptyComponent={
@@ -294,8 +290,35 @@ function ArtistsGrid() {
 }
 
 /** The note above this phone's albums or artists when the server's can't be shown. */
-const offlineNote = (why: Unreachable, what: string) =>
-  why === 'refused' ? `Access token refused · ${what} on this phone` : `Server offline · ${what} on this phone`;
+/**
+ * Above the albums or artists still shown from this phone while the server's list can't be had. A refused token is
+ * something the user can fix, so that note is a button into Settings, like the empty state's action.
+ */
+function OfflineNote({ why, what }: { why: Unreachable; what: string }) {
+  const styles = useStyles();
+  const colors = useColors();
+  if (why !== 'refused')
+    return (
+      <Text variant="caption" style={styles.gridNote}>
+        Server offline · {what} on this phone
+      </Text>
+    );
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Access token refused. Showing ${what} on this phone. Open Settings to fix the token.`}
+      onPress={nav.settings}
+      style={styles.gridNoteButton}>
+      <Text variant="caption" style={styles.flex}>
+        Access token refused · {what} on this phone
+      </Text>
+      <Text variant="caption" color={colors.accentText}>
+        Fix in Settings
+      </Text>
+      <Icon name="chevron-forward" size={14} color={colors.accentText} />
+    </Pressable>
+  );
+}
 
 /** Case- and accent-insensitive artist name, to spot the same artist on the server and on this phone. */
 const foldName = (name: string) =>
@@ -425,6 +448,14 @@ const useStyles = makeStyles((colors) => ({
   chips: { gap: space.sm, paddingBottom: space.md },
   gridCell: { flex: 1, paddingHorizontal: space.xs + 2, paddingBottom: space.lg },
   gridNote: { paddingHorizontal: space.xs + 2, paddingBottom: space.md },
+  gridNoteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    minHeight: 44,
+    paddingHorizontal: space.xs + 2,
+    marginBottom: space.xs,
+  },
   playRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingLeft: space.lg, paddingRight: space.md, paddingVertical: space.sm },
   newTile: {
     width: 56,
