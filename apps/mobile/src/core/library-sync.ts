@@ -174,6 +174,7 @@ function keyOf(track: string): string | null {
 
 const K_KEY = 'sync.libraryKey';
 const K_LAST = 'sync.lastSyncedAt';
+const K_PREVIOUS = 'sync.previousLibraryKey';
 /** No 0/O, 1/I/L or U, so a key read aloud or typed from a screenshot comes out right. */
 const ALPHABET = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
 const KEY_LENGTH = 25;
@@ -251,10 +252,14 @@ async function request<T>(method: 'GET' | 'PUT', key: string, body?: unknown): P
   }
 }
 
+const NEWER_FORMAT = 'This library was saved by a newer Blednify. Update the app to sync it.';
+
 async function syncOnce(key: string): Promise<void> {
   let { status, json } = await request<RemoteCopy>('GET', key);
   for (let attempt = 0; attempt < 4; attempt++) {
     const remote = status === 404 || !json ? null : json;
+    // A copy this version can't read (a newer app's format) must never be overwritten with this device's data.
+    if (remote && remote.data != null && !isDoc(remote.data)) throw new ApiError(NEWER_FORMAT);
     const remoteDoc = remote && isDoc(remote.data) ? remote.data : null;
     const merged = await mergeIntoLocal(remoteDoc);
     if (sameDoc(merged, remoteDoc)) return;
@@ -301,17 +306,41 @@ export function syncLibrary(): Promise<void> {
 }
 
 /**
- * Switch this device to another library (restore on a new phone). What is on the device now is merged into
- * that library rather than dropped.
+ * `restored`: switched and synced. `empty`: the server has no library under that key (nothing switched unless
+ * `allowEmpty`). `failed`: the key wasn't switched (server unreachable, unreadable copy) or, with `switched`, the
+ * first sync failed and will retry. `previousKey` is the key this device used before.
  */
-export async function switchLibraryKey(raw: string): Promise<boolean> {
+export type SwitchResult =
+  | { status: 'restored'; previousKey: string | null }
+  | { status: 'empty' }
+  | { status: 'failed'; error: string; switched: boolean; previousKey?: string | null };
+
+/**
+ * Switch this device to another library (restore on a new phone). What is on the device now is merged into
+ * that library rather than dropped. The key is checked on the server first, so a typo or an outage doesn't
+ * silently start a new, empty library.
+ */
+export async function switchLibraryKey(raw: string, opts: { allowEmpty?: boolean } = {}): Promise<SwitchResult> {
   const key = normalizeLibraryKey(raw);
-  if (!key) return false;
+  if (!key) return { status: 'failed', error: 'That isn’t a library key', switched: false };
+  if (!getServerBase()) return { status: 'failed', error: 'Connect to your server first', switched: false };
+  try {
+    const probe = await request<RemoteCopy>('GET', key);
+    if ((probe.status === 404 || !probe.json) && !opts.allowEmpty) return { status: 'empty' };
+    if (probe.json && probe.json.data != null && !isDoc(probe.json.data))
+      return { status: 'failed', error: NEWER_FORMAT, switched: false };
+  } catch (e) {
+    return { status: 'failed', error: errorMessage(e), switched: false };
+  }
+  const previousKey = librarySyncStore.getState().key;
+  if (previousKey && previousKey !== key) kv.set(K_PREVIOUS, previousKey);
   kv.set(K_KEY, key);
   kv.remove(K_LAST);
   librarySyncStore.setState({ key, lastSyncedAt: null });
   await syncLibrary();
-  return true;
+  const after = librarySyncStore.getState();
+  if (after.status === 'error') return { status: 'failed', error: after.error ?? 'Sync failed', switched: true, previousKey };
+  return { status: 'restored', previousKey };
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;

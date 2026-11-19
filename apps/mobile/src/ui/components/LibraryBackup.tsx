@@ -92,15 +92,38 @@ export function confirmSwitch(key: string, onDone?: () => void) {
     title: 'Use this library?',
     message: 'Its playlists and likes will appear on this device. What is here now is kept and added to it.',
     confirmLabel: 'Use library',
-    onConfirm: async () => {
-      const ok = await switchLibraryKey(key);
-      if (ok) {
-        haptics.success();
-        showToast('Library restored', 'success');
-        onDone?.();
-      }
-    },
+    onConfirm: () => void runSwitch(key, false, onDone),
   });
+}
+
+/** Switches and reports what really happened: restored, no library under that key, or a failure. */
+async function runSwitch(key: string, allowEmpty: boolean, onDone?: () => void) {
+  const r = await switchLibraryKey(key, { allowEmpty });
+  if (r.status === 'empty') {
+    haptics.warn();
+    confirm({
+      title: 'No library with this key',
+      message: 'The server has no backup under this key. Check it for typos, or start a new library with it.',
+      confirmLabel: 'Start new library',
+      cancelLabel: 'Keep current',
+      onConfirm: () => void runSwitch(key, true, onDone),
+    });
+    return;
+  }
+  if (r.status === 'failed') {
+    haptics.warn();
+    showToast(r.switched ? `Switched, but syncing failed: ${r.error}. It will retry.` : `Couldn’t restore: ${r.error}`, 'error');
+    if (r.switched) onDone?.();
+    return;
+  }
+  haptics.success();
+  const previous = r.previousKey;
+  showToast(
+    allowEmpty ? 'New library started' : 'Library restored',
+    'success',
+    previous && previous !== key ? { label: 'Switch back', onPress: () => void runSwitch(previous, true) } : undefined,
+  );
+  onDone?.();
 }
 
 function LibraryKeySheet({ keyValue, base }: { keyValue: string; base: string }) {
