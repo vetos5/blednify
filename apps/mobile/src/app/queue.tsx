@@ -1,5 +1,5 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, FlatList, Pressable, StyleSheet, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
+import { AccessibilityInfo, findNodeHandle, FlatList, Pressable, StyleSheet, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
@@ -26,12 +26,12 @@ import { Text } from '@/ui/components/Text';
 import { useWideRedirect } from '@/ui/desktop/redirect';
 import { removeFromQueueWithUndo } from '@/ui/actions';
 import { haptics } from '@/ui/haptics';
-import { makeStyles, space, TRACK_ROW_HEIGHT, useColors } from '@/ui/theme';
+import { useTrackRowHeight } from '@/ui/layout';
+import { makeStyles, space, useColors } from '@/ui/theme';
 import { spokenLabel } from '@/ui/a11y';
 
-const ROW_H = TRACK_ROW_HEIGHT;
-/** Dragging within this distance of the list's top or bottom edge scrolls it. */
-const EDGE = ROW_H * 1.25;
+/** Dragging within this many rows of the list's top or bottom edge scrolls it. */
+const EDGE_ROWS = 1.25;
 /** Auto-scroll speed at the very edge, in px per second. */
 const MAX_SCROLL_SPEED = 1100;
 
@@ -47,7 +47,15 @@ type DragState = {
   /** Current list scroll offset, and its value when the drag started: the row under the finger moves with the list. */
   scroll: SharedValue<number>;
   scroll0: SharedValue<number>;
+  /** Row height at the system font scale (`trackRowHeight`): every row is exactly this tall, the drag maths use it. */
+  rowH: SharedValue<number>;
 };
+
+/**
+ * Queue position (abs) of a row moved with a TalkBack action. Rows are keyed by position, so the moved row remounts
+ * and TalkBack focus would drop back to the top of the list; the new row takes the focus back when it mounts.
+ */
+const a11yFocus = { abs: -1 };
 
 type Item = { track: AppTrack; abs: number; rel: number };
 
@@ -74,9 +82,14 @@ function QueueScreenContent() {
   const count = useSharedValue(upNext.length);
   const scroll = useSharedValue(0);
   const scroll0 = useSharedValue(0);
+  const rowHeight = useTrackRowHeight();
+  const rowH = useSharedValue(rowHeight);
+  useEffect(() => {
+    rowH.set(rowHeight);
+  }, [rowH, rowHeight]);
   const drag = useMemo<DragState>(
-    () => ({ from, dy, top, container, count, scroll, scroll0 }),
-    [from, dy, top, container, count, scroll, scroll0],
+    () => ({ from, dy, top, container, count, scroll, scroll0, rowH }),
+    [from, dy, top, container, count, scroll, scroll0, rowH],
   );
   const listRef = useRef<FlatList<Item>>(null);
   const metrics = useRef({ offset: 0, content: 0, viewport: 0 });
@@ -103,7 +116,9 @@ function QueueScreenContent() {
       const dt = Math.min(50, now - last);
       last = now;
       const m = metrics.current;
-      const centre = top.get() + dy.get() + ROW_H / 2;
+      const h = rowH.get();
+      const EDGE = h * EDGE_ROWS;
+      const centre = top.get() + dy.get() + h / 2;
       let speed = 0;
       if (centre < EDGE) speed = -Math.min(1, (EDGE - centre) / EDGE);
       else if (centre > m.viewport - EDGE) speed = Math.min(1, (centre - (m.viewport - EDGE)) / EDGE);
@@ -119,7 +134,7 @@ function QueueScreenContent() {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [dragging, top, dy, scroll]);
+  }, [dragging, top, dy, scroll, rowH]);
 
   const startDrag = (rel: number) => {
     haptics.press();
@@ -196,9 +211,9 @@ function QueueScreenContent() {
           ListEmptyComponent={
             <EmptyState icon="list-outline" title="Nothing up next" message="Use “Play next” or “Add to queue” from any song’s menu." />
           }
-          renderItem={({ item }) => <QueueRow item={item} drag={drag} onDragStart={startDrag} onDragEnd={endDrag} />}
+          renderItem={({ item }) => <QueueRow item={item} drag={drag} rowH={rowHeight} onDragStart={startDrag} onDragEnd={endDrag} />}
         />
-        {ghost ? <Ghost track={ghost.track} drag={drag} /> : null}
+        {ghost ? <Ghost track={ghost.track} drag={drag} rowH={rowHeight} /> : null}
       </Animated.View>
     </View>
   );
@@ -207,11 +222,13 @@ function QueueScreenContent() {
 const QueueRow = memo(function QueueRow({
   item,
   drag,
+  rowH,
   onDragStart,
   onDragEnd,
 }: {
   item: Item;
   drag: DragState;
+  rowH: number;
   onDragStart: (rel: number) => void;
   onDragEnd: (rel: number, to: number) => void;
 }) {
@@ -220,6 +237,18 @@ const QueueRow = memo(function QueueRow({
   const { track, abs, rel } = item;
   const { width } = useWindowDimensions();
   const tx = useSharedValue(0);
+  const pressRef = useRef<ComponentRef<typeof Pressable>>(null);
+
+  // After a TalkBack "Move up/down" this row is the moved song at its new place: give it the focus back.
+  useEffect(() => {
+    if (a11yFocus.abs !== abs) return;
+    a11yFocus.abs = -1;
+    const timer = setTimeout(() => {
+      const node = findNodeHandle(pressRef.current);
+      if (node) AccessibilityInfo.setAccessibilityFocus(node);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [abs]);
 
   // Rows are recycled by FlashList: reset swipe offset whenever the row shows a different item.
   useLayoutEffect(() => {
@@ -268,7 +297,7 @@ const QueueRow = memo(function QueueRow({
     },
     onDeactivate: () => {
       'worklet';
-      const to = Math.max(0, Math.min(drag.count.get() - 1, rel + Math.round((drag.dy.get() + drag.scroll.get() - drag.scroll0.get()) / ROW_H)));
+      const to = Math.max(0, Math.min(drag.count.get() - 1, rel + Math.round((drag.dy.get() + drag.scroll.get() - drag.scroll0.get()) / drag.rowH.get())));
       scheduleOnRN(onDragEnd, rel, to);
     },
   });
@@ -277,17 +306,18 @@ const QueueRow = memo(function QueueRow({
     const from = drag.from.get();
     if (from < 0) return { opacity: 1, transform: [{ translateY: 0 }] };
     if (from === rel) return { opacity: 0, transform: [{ translateY: 0 }] };
-    const to = Math.max(0, Math.min(drag.count.get() - 1, from + Math.round((drag.dy.get() + drag.scroll.get() - drag.scroll0.get()) / ROW_H)));
+    const h = drag.rowH.get();
+    const to = Math.max(0, Math.min(drag.count.get() - 1, from + Math.round((drag.dy.get() + drag.scroll.get() - drag.scroll0.get()) / h)));
     let shift = 0;
-    if (from < rel && rel <= to) shift = -ROW_H;
-    else if (to <= rel && rel < from) shift = ROW_H;
+    if (from < rel && rel <= to) shift = -h;
+    else if (to <= rel && rel < from) shift = h;
     return { opacity: 1, transform: [{ translateY: withTiming(shift, { duration: 140 }) }] };
   });
   const contentStyle = useAnimatedStyle(() => ({ transform: [{ translateX: tx.get() }] }));
   const underlayStyle = useAnimatedStyle(() => ({ opacity: tx.get() < -4 ? 1 : 0 }));
 
   return (
-    <Animated.View style={[styles.rowWrap, rowStyle]}>
+    <Animated.View style={[{ height: rowH }, rowStyle]}>
       <Animated.View style={[styles.underlay, underlayStyle]}>
         <Icon name="trash-outline" size={20} color={colors.onAccent} />
         <Text variant="bodyStrong" color={colors.onAccent}>
@@ -297,7 +327,8 @@ const QueueRow = memo(function QueueRow({
       <GestureDetector gesture={swipe}>
         <Animated.View style={[styles.rowContent, contentStyle]}>
           <Pressable
-            style={styles.rowPress}
+            ref={pressRef}
+            style={[styles.rowPress, { height: rowH }]}
             accessibilityRole="button"
             accessibilityLabel={spokenLabel(`Play ${track.title} by ${track.artist}`)}
             // Dragging the handle has no screen-reader equivalent, so moving is offered as actions too.
@@ -310,9 +341,11 @@ const QueueRow = memo(function QueueRow({
               const action = e.nativeEvent.actionName;
               if (action === 'delete') remove();
               else if (action === 'moveUp' && rel > 0) {
+                a11yFocus.abs = abs - 1;
                 player.moveInQueue(abs, abs - 1);
                 AccessibilityInfo.announceForAccessibility(`${track.title} moved to position ${rel} in Up next`);
               } else if (action === 'moveDown' && rel < drag.count.get() - 1) {
+                a11yFocus.abs = abs + 1;
                 player.moveInQueue(abs, abs + 1);
                 AccessibilityInfo.announceForAccessibility(`${track.title} moved to position ${rel + 2} in Up next`);
               }
@@ -325,7 +358,7 @@ const QueueRow = memo(function QueueRow({
             <RowBody track={track} />
           </Pressable>
           <GestureDetector gesture={handle}>
-            <View style={styles.handle} accessible={false} importantForAccessibility="no-hide-descendants" aria-hidden>
+            <View style={[styles.handle, { height: rowH }]} accessible={false} importantForAccessibility="no-hide-descendants" aria-hidden>
               <Icon name="reorder-three" size={24} color={colors.textSecondary} />
             </View>
           </GestureDetector>
@@ -352,16 +385,16 @@ function RowBody({ track }: { track: AppTrack }) {
   );
 }
 
-function Ghost({ track, drag }: { track: AppTrack; drag: DragState }) {
+function Ghost({ track, drag, rowH }: { track: AppTrack; drag: DragState; rowH: number }) {
   const styles = useStyles();
   const colors = useColors();
   const style = useAnimatedStyle(() => ({ transform: [{ translateY: drag.top.get() + drag.dy.get() }] }));
   return (
-    <Animated.View pointerEvents="none" style={[styles.ghost, style]}>
-      <View style={styles.rowPress}>
+    <Animated.View pointerEvents="none" style={[styles.ghost, { height: rowH }, style]}>
+      <View style={[styles.rowPress, { height: rowH }]}>
         <RowBody track={track} />
       </View>
-      <View style={styles.handle}>
+      <View style={[styles.handle, { height: rowH }]}>
         <Icon name="reorder-three" size={24} color={colors.text} />
       </View>
     </Animated.View>
@@ -377,7 +410,6 @@ const useStyles = makeStyles((colors) => ({
   upNextHeader: { paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.sm, gap: 2 },
   hint: { fontSize: 12 },
   meta: { flex: 1, minWidth: 0, gap: 2 },
-  rowWrap: { height: ROW_H },
   underlay: {
     ...StyleSheet.absoluteFill,
     flexDirection: 'row',
@@ -388,14 +420,13 @@ const useStyles = makeStyles((colors) => ({
     backgroundColor: colors.accent,
   },
   rowContent: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg },
-  rowPress: { flex: 1, height: ROW_H, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingLeft: space.lg },
-  handle: { width: 56, height: ROW_H, alignItems: 'center', justifyContent: 'center' },
+  rowPress: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingLeft: space.lg },
+  handle: { width: 56, alignItems: 'center', justifyContent: 'center' },
   ghost: {
     position: 'absolute',
     left: 0,
     right: 0,
     top: 0,
-    height: ROW_H,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surface2,
