@@ -13,7 +13,9 @@
  * redirected in `onNativeIndex`, and so is a native advance into a slot from before the current song once repeat-all
  * is off (a wrap the background deferral left). While the phone is offline the window chains only songs that play
  * without the network (`offlineOnly`), so native doesn't fail into each streamed one, and Previous (in-app and the
- * slot behind) steps back over streamed songs the same way. The redirect rules are pure in `window.ts`.
+ * slot behind) steps back over streamed songs the same way; every forward move (Next, a song ending, an error skip,
+ * a native redirect) uses the same `nextIndexIn`, so none lands on a streamed song. The redirect rules and both index
+ * steps are pure in `window.ts`.
  *
  * IMPORTANT (Android): expo-audio's Media3 lock-screen session must not observe playlist edits (the
  * notification's MediaController then crashed the app with "Invalid PlayerInfo update"). So auto-advance never
@@ -51,7 +53,7 @@ import { shuffled } from '../util';
 import { lockArtwork, prefetchLockArtwork } from './lock-art';
 import { fromRow, toRow, type QueueRow } from './queue-rows';
 import { playerStore, progressStore } from './store';
-import { planTail, planWindow, prevIndexIn, resolveNativeMove, WINDOW_AHEAD, type Slot as WindowSlot } from './window';
+import { nextIndexIn, planTail, planWindow, prevIndexIn, resolveNativeMove, WINDOW_AHEAD, type Slot as WindowSlot } from './window';
 
 type Entry = { uid: number; track: AppTrack };
 /**
@@ -214,15 +216,25 @@ function metadataOf(t: AppTrack): AudioMetadata {
  * (`offlineOnly`) it steps over streamed songs, like Next and the native window do.
  */
 function prevIndexOf(i: number): number | null {
-  const playable = offlineOnly ? (j: number) => !!resolveTrack(entries[j].track).localUri : undefined;
-  return prevIndexIn(i, entries.length, S().repeat === 'all', playable);
+  return prevIndexIn(i, entries.length, S().repeat === 'all', offlinePlayable());
 }
 
-/** Index that follows `index` during playback; repeat-all wraps. */
+/** Offline (`offlineOnly`) only songs that play without the network count as a place to move to. */
+function offlinePlayable(): ((j: number) => boolean) | undefined {
+  return offlineOnly ? (j: number) => !!resolveTrack(entries[j].track).localUri : undefined;
+}
+
+/**
+ * Index that follows `index` during playback (Next, a song ending, an error skip); repeat-all wraps. Offline it
+ * steps over streamed songs like Previous and the native window, so every forward path agrees (`nextIndexIn`).
+ */
 function nextIndex(): number | null {
-  if (!entries.length) return null;
-  if (index + 1 < entries.length) return index + 1;
-  return S().repeat === 'all' ? 0 : null;
+  return nextIndexIn(index, entries.length, S().repeat === 'all', offlinePlayable());
+}
+
+/** Where Next on the last song wraps to: the first song, or offline the first downloaded one. */
+function firstIndex(): number | null {
+  return nextIndexIn(-1, entries.length, false, offlinePlayable());
 }
 
 function publishQueue(extra?: Partial<PlayerState>) {
@@ -504,8 +516,9 @@ function load(idx: number, play: boolean, positionMs = 0) {
   const edits: PlaylistEdit[] = [{ op: 'clear' }];
   natUids = [];
   natUris = [];
-  // Offline the slot behind holds the previous downloaded song (`prevIndexOf`), not a streamed one native can't play.
-  const pi = offlineOnly ? prevIndexOf(idx) : idx - 1;
+  // The slot behind is what Previous plays (`prevIndexOf`: offline the previous downloaded song). A repeat-all wrap
+  // (pi after idx) is left to `syncWindow`, which places it once the window is built.
+  const pi = prevIndexOf(idx);
   const prev = pi !== null && pi >= 0 && pi < idx ? entries[pi] : undefined;
   const prevSrc = prev ? sourceOf(prev.track) : null;
   if (prev && prevSrc) {
@@ -581,7 +594,7 @@ function onNativeIndex(ci: number) {
   if (idx < 0) {
     // The entry native moved to was removed from the queue in the meantime (its slot not yet synced): go where
     // that move meant to go, not back to the song being left (which replayed it from the start).
-    const ni = forward ? nextIndex() : Math.max(index - 1, 0);
+    const ni = forward ? nextIndex() : (prevIndexOf(index) ?? Math.max(index, 0));
     if (ni === null) {
       wantPlay = false;
       kv.set(POSITION_KEY, 0);
@@ -803,13 +816,8 @@ function retryAfterNetworkError() {
 
 /** The next entry after the current one that plays without the network (downloaded or on-device), if any. */
 function nextOfflineIndex(): number | null {
-  const n = entries.length;
-  const upcoming = S().repeat === 'all' ? n - 1 : n - 1 - index;
-  for (let k = 1; k <= upcoming; k++) {
-    const i = (index + k) % n;
-    if (resolveTrack(entries[i].track).localUri) return i;
-  }
-  return null;
+  const ni = nextIndexIn(index, entries.length, S().repeat === 'all', (j) => !!resolveTrack(entries[j].track).localUri);
+  return ni === index ? null : ni;
 }
 
 /**
@@ -1175,12 +1183,14 @@ function next() {
   catchUpNative();
   const playing = isActive();
   // Offline, Next goes to the next song that plays (like the native window does), not into a streamed one.
-  const ni = (offlineOnly ? nextOfflineIndex() : null) ?? nextIndex();
+  const ni = nextIndex();
   if (ni === null) {
-    // Next on the last song wraps to the first one and keeps playing (only a song ending on its own stops there).
-    if (entries.length) {
+    // Next on the last song wraps to the first one (offline: the first downloaded one) and keeps playing; only a
+    // song ending on its own stops there.
+    const first = firstIndex();
+    if (first !== null) {
       kv.set(POSITION_KEY, 0);
-      load(0, playing);
+      load(first, playing);
     }
     return;
   }

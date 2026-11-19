@@ -35,6 +35,20 @@ export function prevIndexIn(i: number, n: number, repeatAll: boolean, playable?:
   return null;
 }
 
+/**
+ * Index that follows `i` (Next, a song ending, an error skip); repeat-all wraps, and over a one-song queue that is
+ * the song itself. With `playable` (offline: only downloaded songs) rejected entries are stepped over, so nothing
+ * moves into a streamed song the phone can't load. `i = -1` gives the first playable entry.
+ */
+export function nextIndexIn(i: number, n: number, repeatAll: boolean, playable?: (i: number) => boolean): number | null {
+  const ahead = repeatAll ? n : n - 1 - i;
+  for (let k = 1; k <= ahead; k++) {
+    const j = (i + k) % n;
+    if (!playable || playable(j)) return j;
+  }
+  return null;
+}
+
 /** What to do when native reports it moved to the slot of queue entry `idx` (see `onNativeIndex` in engine.ts). */
 export type NativeMove = { kind: 'accept' } | { kind: 'load'; index: number } | { kind: 'stop' };
 

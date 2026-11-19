@@ -1,7 +1,7 @@
 // The native window planner (src/core/player/window.ts) against a fake native playlist that applies the edits.
 import { describe, expect, test } from 'bun:test';
 
-import { planTail, planWindow, prevIndexIn, resolveNativeMove, TRIM_BEHIND, WINDOW_AHEAD, WINDOW_MIN, type Slot, type WindowEdit } from '../src/core/player/window';
+import { nextIndexIn, planTail, planWindow, prevIndexIn, resolveNativeMove, TRIM_BEHIND, WINDOW_AHEAD, WINDOW_MIN, type Slot, type WindowEdit } from '../src/core/player/window';
 
 type Src = { uid: number; key: string };
 const slot = (uid: number, key = `u${uid}`): Slot<Src> => ({ uid, src: { uid, key }, key });
@@ -115,6 +115,35 @@ describe('prevIndexIn', () => {
     expect(prevIndexIn(0, 6, true, playable)).toBe(3);
     expect(prevIndexIn(3, 6, false, () => false)).toBeNull();
     expect(prevIndexIn(3, 6, true, () => false)).toBeNull();
+  });
+});
+
+describe('nextIndexIn', () => {
+  test('stops at the end without repeat-all; repeat-all wraps, a one-song queue repeats itself', () => {
+    expect(nextIndexIn(1, 4, false)).toBe(2);
+    expect(nextIndexIn(3, 4, false)).toBeNull();
+    expect(nextIndexIn(3, 4, true)).toBe(0);
+    expect(nextIndexIn(0, 1, true)).toBe(0);
+    expect(nextIndexIn(0, 1, false)).toBeNull();
+    expect(nextIndexIn(0, 0, true)).toBeNull();
+  });
+
+  test('offline it steps over streamed songs and never lands on one past the last download', () => {
+    // Downloaded: 0, 3. Streamed: 1, 2, 4, 5.
+    const playable = (i: number) => i === 0 || i === 3;
+    expect(nextIndexIn(0, 6, false, playable)).toBe(3);
+    expect(nextIndexIn(3, 6, false, playable)).toBeNull();
+    expect(nextIndexIn(3, 6, true, playable)).toBe(0);
+    expect(nextIndexIn(4, 6, false, () => false)).toBeNull();
+    // Only the current song is downloaded: repeat-all loops it.
+    expect(nextIndexIn(3, 6, true, (i) => i === 3)).toBe(3);
+  });
+
+  test('from -1 it finds the first (playable) entry, where Next on the last song wraps to', () => {
+    expect(nextIndexIn(-1, 4, false)).toBe(0);
+    expect(nextIndexIn(-1, 6, false, (i) => i >= 2)).toBe(2);
+    expect(nextIndexIn(-1, 3, false, () => false)).toBeNull();
+    expect(nextIndexIn(-1, 0, false)).toBeNull();
   });
 });
 
