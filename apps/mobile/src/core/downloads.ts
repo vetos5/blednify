@@ -8,6 +8,7 @@ import { trackArtworkUrl, trackStreamUrl } from './api';
 import { getDb, writeTx } from './db';
 import { libIndex, setDownload, setDownloads, type DownloadEntry } from './lib-index';
 import { classifyDownloadError } from './download-errors';
+import { renameInQueue } from './download-queue';
 import { DIRS, deleteQuietly, ensureDir, fileAt } from './paths';
 import { authHeadersFor } from './auth';
 import { refreshQueueTracks } from './player/engine';
@@ -452,26 +453,13 @@ export function dropQueuedDownloads(keys: readonly string[]): void {
 export function renameQueuedDownloads(moves: ReadonlyMap<string, string>): void {
   const { items, order } = dlStore.getState();
   const { downloads } = libIndex.getState();
-  const nextItems = { ...items };
-  const nextOrder: string[] = [];
-  let changed = false;
-  for (const k of order) {
-    const to = moves.get(k);
-    const it = items[k];
-    if (!to || it.status === 'downloading') {
-      nextOrder.push(k);
-      continue;
-    }
-    changed = true;
+  const next = renameInQueue<AppTrack, Item>(items, order, moves, (k) => downloads.has(k), (track) => ({ track, status: 'queued' }));
+  if (!next) return;
+  for (const k of next.dropped) {
     clearTimeout(retryTimers.get(k));
     retryTimers.delete(k);
-    delete nextItems[k];
-    if (nextItems[to] || downloads.has(to)) continue;
-    nextItems[to] = { track: { ...it.track, key: to, id: to.slice(2) }, status: 'queued' };
-    nextOrder.push(to);
   }
-  if (!changed) return;
-  dlStore.setState({ items: nextItems, order: nextOrder });
+  dlStore.setState({ items: next.items, order: next.order });
   persistQueue();
   void pump();
 }
