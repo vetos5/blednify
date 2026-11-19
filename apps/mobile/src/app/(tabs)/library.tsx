@@ -20,6 +20,7 @@ import {
   type AlbumView,
   type AppTrack,
   type ArtistView,
+  type Unreachable,
   fileStorageSupported,
 } from '@/core';
 import { importMusic } from '@/ui/actions';
@@ -34,6 +35,7 @@ import { Loading } from '@/ui/components/Loading';
 import { PlaylistArtwork } from '@/ui/components/PlaylistArtwork';
 import { openPlaylistActions, promptNewPlaylist } from '@/ui/components/PlaylistActions';
 import { PrimaryButton } from '@/ui/components/PrimaryButton';
+import { ServerUnreachable } from '@/ui/components/ServerUnreachable';
 import { Text } from '@/ui/components/Text';
 import { onTrackMore } from '@/ui/components/TrackActions';
 import { TrackRow, TrackTableHeader } from '@/ui/components/TrackRow';
@@ -165,7 +167,7 @@ function AlbumsGrid() {
   const [pageW, setPageW] = useState(0);
   const columns = wide && pageW > 0 ? Math.max(3, Math.floor((pageW - 48) / 190)) : 2;
   const local = useLocalAlbums();
-  const { albums: remote, isLoading, isError, refetch } = useRemoteAlbums();
+  const { albums: remote, isLoading, unreachable, refetch } = useRemoteAlbums();
   const seen = new Set<string>();
   const albums: AlbumView[] = [];
   for (const a of [...local, ...remote]) {
@@ -184,13 +186,18 @@ function AlbumsGrid() {
       numColumns={columns}
       keyExtractor={(a) => `${a.origin}:${a.id}`}
       contentContainerStyle={{ paddingHorizontal: wide ? space.xl : space.md, paddingBottom: space.xl + chromeInset }}
+      ListHeaderComponent={
+        unreachable && albums.length > 0 ? (
+          <Text variant="caption" style={styles.gridNote}>
+            {offlineNote(unreachable, 'albums')}
+          </Text>
+        ) : null
+      }
       ListEmptyComponent={
         isLoading ? (
           <Loading />
-        ) : isError ? (
-          <EmptyState icon="cloud-offline-outline" title="Can’t reach your server" message="Albums from the server show up here once it’s back.">
-            <PrimaryButton label="Try again" icon="refresh" variant="surface" onPress={refetch} />
-          </EmptyState>
+        ) : unreachable ? (
+          <ServerUnreachable reason={unreachable} message="Albums from the server show up here once it’s back." retry={refetch} />
         ) : (
         <EmptyState
           icon="disc-outline"
@@ -223,7 +230,7 @@ function ArtistsGrid() {
   const [pageW, setPageW] = useState(0);
   const columns = wide && pageW > 0 ? Math.max(3, Math.floor((pageW - 48) / 190)) : 2;
   const local = useLocalArtists();
-  const { artists: remote, isLoading, isError, refetch } = useRemoteArtists();
+  const { artists: remote, isLoading, unreachable, refetch } = useRemoteArtists();
   const artists = useMemo(() => {
     const seen = new Set<string>();
     const out: ArtistView[] = [];
@@ -238,7 +245,7 @@ function ArtistsGrid() {
   }, [remote, local]);
   // An artist both on the server and in imported files shows twice (they open different pages); say which is which.
   const onServer = useMemo(() => new Set(remote.map((a) => foldName(a.name))), [remote]);
-  const offlineWithLocal = isError && artists.length > 0;
+  const offlineWithLocal = unreachable && artists.length > 0;
   return (
     <View style={styles.flex} onLayout={(e) => setPageW(e.nativeEvent.layout.width)}>
       <FlashList
@@ -250,17 +257,15 @@ function ArtistsGrid() {
         ListHeaderComponent={
           offlineWithLocal ? (
             <Text variant="caption" style={styles.gridNote}>
-              Server offline · artists on this phone
+              {offlineNote(unreachable, 'artists')}
             </Text>
           ) : null
         }
         ListEmptyComponent={
           isLoading ? (
             <Loading />
-          ) : isError ? (
-            <EmptyState icon="cloud-offline-outline" title="Can’t reach your server" message="Artists from the server show up here once it’s back.">
-              <PrimaryButton label="Try again" icon="refresh" variant="surface" onPress={refetch} />
-            </EmptyState>
+          ) : unreachable ? (
+            <ServerUnreachable reason={unreachable} message="Artists from the server show up here once it’s back." retry={refetch} />
           ) : (
             <EmptyState
               icon="person-outline"
@@ -288,6 +293,10 @@ function ArtistsGrid() {
   );
 }
 
+/** The note above this phone's albums or artists when the server's can't be shown. */
+const offlineNote = (why: Unreachable, what: string) =>
+  why === 'refused' ? `Access token refused · ${what} on this phone` : `Server offline · ${what} on this phone`;
+
 /** Case- and accent-insensitive artist name, to spot the same artist on the server and on this phone. */
 const foldName = (name: string) =>
   name
@@ -301,14 +310,14 @@ function RecentsList() {
   return (
     <TrackList
       tracks={tracks}
-      empty={<EmptyState icon="time-outline" title="No recently played songs" message="Tracks you play will appear here." />}
+      empty={<EmptyState icon="time-outline" title="No recently played songs" message="Songs you play will appear here." />}
     />
   );
 }
 
 function SongsList() {
   const hasServer = !!useServerBase();
-  const { tracks, isLoading, isError, refetch } = useAllRemoteTracks();
+  const { tracks, isLoading, unreachable, refetch } = useAllRemoteTracks();
   if (isLoading) return <Loading />;
   return (
     <TrackList
@@ -318,10 +327,8 @@ function SongsList() {
           <EmptyState icon="cloud-offline-outline" title="No server connected" message="Connect your server in Settings to browse its songs.">
             <PrimaryButton label="Open Settings" icon="settings-outline" variant="surface" onPress={nav.settings} />
           </EmptyState>
-        ) : isError ? (
-          <EmptyState icon="cloud-offline-outline" title="Can’t reach your server" message="Its songs show up here once it’s back.">
-            <PrimaryButton label="Try again" icon="refresh" variant="surface" onPress={refetch} />
-          </EmptyState>
+        ) : unreachable ? (
+          <ServerUnreachable reason={unreachable} message="Its songs show up here once it’s back." retry={refetch} />
         ) : (
           <EmptyState icon="musical-notes-outline" title="No songs on the server" message="Add music to the server’s folder, or upload it in Admin mode." />
         )

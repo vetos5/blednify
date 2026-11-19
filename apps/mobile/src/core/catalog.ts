@@ -158,8 +158,20 @@ async function fetchAllTracks(base: string, signal: AbortSignal): Promise<ApiTra
   }
 }
 
+/** Why a whole-catalog list couldn't load (it has no "not found"): see `Unreachable`. */
+function listUnreachable(q: { isError: boolean; data: unknown; error: unknown }): Unreachable {
+  if (!q.isError || q.data) return false;
+  return q.error instanceof ApiError && (q.error.status === 401 || q.error.status === 403) ? 'refused' : 'offline';
+}
+
 /** Every server song, A–Z (Library → Songs). Loaded whole like the albums, so Play all / Shuffle cover all of them. */
-export function useAllRemoteTracks(): { tracks: AppTrack[]; isLoading: boolean; isError: boolean; refetch(): void } {
+export function useAllRemoteTracks(): {
+  tracks: AppTrack[];
+  isLoading: boolean;
+  isError: boolean;
+  unreachable: Unreachable;
+  refetch(): void;
+} {
   const base = useServerBase();
   const q = useQuery({
     queryKey: ['tracks', base, 'all'],
@@ -173,7 +185,7 @@ export function useAllRemoteTracks(): { tracks: AppTrack[]; isLoading: boolean; 
     [q.data, base, ctx],
   );
   const { refetch } = q;
-  return { tracks, isLoading: q.isLoading, isError: q.isError && !q.data, refetch: () => void refetch() };
+  return { tracks, isLoading: q.isLoading, isError: q.isError && !q.data, unreachable: listUnreachable(q), refetch: () => void refetch() };
 }
 
 async function fetchAllAlbums(base: string, signal: AbortSignal): Promise<ApiAlbum[]> {
@@ -192,7 +204,13 @@ async function fetchAllAlbums(base: string, signal: AbortSignal): Promise<ApiAlb
 const EMPTY_ALBUMS: AlbumView[] = [];
 const EMPTY_ARTISTS: ArtistView[] = [];
 
-export function useRemoteAlbums(): { albums: AlbumView[]; isLoading: boolean; isError: boolean; refetch(): void } {
+export function useRemoteAlbums(): {
+  albums: AlbumView[];
+  isLoading: boolean;
+  isError: boolean;
+  unreachable: Unreachable;
+  refetch(): void;
+} {
   const base = useServerBase();
   const q = useQuery({
     queryKey: ['albums', base],
@@ -202,7 +220,7 @@ export function useRemoteAlbums(): { albums: AlbumView[]; isLoading: boolean; is
   });
   const albums = useMemo(() => (q.data ? q.data.map((a) => fromApiAlbum(a, base)) : EMPTY_ALBUMS), [q.data, base]);
   const { refetch } = q;
-  return { albums, isLoading: q.isLoading, isError: q.isError && !q.data, refetch: () => void refetch() };
+  return { albums, isLoading: q.isLoading, isError: q.isError && !q.data, unreachable: listUnreachable(q), refetch: () => void refetch() };
 }
 
 async function fetchAllArtists(base: string, signal: AbortSignal): Promise<ApiArtist[]> {
@@ -214,7 +232,13 @@ async function fetchAllArtists(base: string, signal: AbortSignal): Promise<ApiAr
   }
 }
 
-export function useRemoteArtists(): { artists: ArtistView[]; isLoading: boolean; isError: boolean; refetch(): void } {
+export function useRemoteArtists(): {
+  artists: ArtistView[];
+  isLoading: boolean;
+  isError: boolean;
+  unreachable: Unreachable;
+  refetch(): void;
+} {
   const base = useServerBase();
   const q = useQuery({
     queryKey: ['artists', base],
@@ -224,7 +248,7 @@ export function useRemoteArtists(): { artists: ArtistView[]; isLoading: boolean;
   });
   const artists = useMemo(() => (q.data ? q.data.map((a) => fromApiArtist(a, base)) : EMPTY_ARTISTS), [q.data, base]);
   const { refetch } = q;
-  return { artists, isLoading: q.isLoading, isError: q.isError && !q.data, refetch: () => void refetch() };
+  return { artists, isLoading: q.isLoading, isError: q.isError && !q.data, unreachable: listUnreachable(q), refetch: () => void refetch() };
 }
 
 /**

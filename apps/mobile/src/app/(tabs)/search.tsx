@@ -91,7 +91,7 @@ export default function SearchScreen() {
         title: unreachable === 'refused' ? 'Access token refused · results from this phone' : 'Server offline · results from this phone',
       });
     if (shownTracks.length) {
-      items.push({ type: 'header', key: 'h:tracks', title: 'Tracks' });
+      items.push({ type: 'header', key: 'h:tracks', title: 'Songs' });
       shownTracks.forEach((track, index) => items.push({ type: 'track', key: track.key, track, index }));
     }
     if (artists.length) {
