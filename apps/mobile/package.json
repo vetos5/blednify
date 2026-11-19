@@ -57,6 +57,7 @@
     "ios": "expo run:ios",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
+    "test": "bun test test/",
     "build:web": "expo export -p web --output-dir dist",
     "build:android": "expo prebuild -p android --no-install && cd android && ./gradlew assembleRelease"
   },

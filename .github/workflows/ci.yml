@@ -30,7 +30,7 @@ jobs:
       - run: bun test
 
   mobile-check:
-    name: Mobile · typecheck + lint + doctor
+    name: Mobile · typecheck + lint + test + doctor
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -45,6 +45,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bunx tsc --noEmit
       - run: bunx expo lint
+      # Pure core logic (library merge, saved queue rows, palette contrast); device modules are stubbed.
+      - run: bun run test
       - run: bunx expo-doctor || echo "::warning::expo-doctor reported issues"
 
   android:
