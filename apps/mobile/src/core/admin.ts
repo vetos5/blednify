@@ -84,7 +84,8 @@ export async function checkAdmin(url?: string, token?: string): Promise<{ ok: bo
   }
 }
 
-export type RescanResult = { added: number; removed: number; total: number; held?: number; heldFolders?: string[] };
+/** `heldWithCopy`: held songs that would move onto an identical copy if confirmed (newer servers; see docs/API.md). */
+export type RescanResult = { added: number; removed: number; total: number; held?: number; heldFolders?: string[]; heldWithCopy?: number };
 
 /**
  * Rescans the server's music folder. Many missing songs at once are kept and reported as `held` (an unmounted

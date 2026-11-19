@@ -36,6 +36,7 @@ import { PrimaryButton } from '@/ui/components/PrimaryButton';
 import { ScreenHeader } from '@/ui/components/ScreenHeader';
 import { Text } from '@/ui/components/Text';
 import { plural } from '@/ui/format';
+import { heldConfirm } from '@/ui/held';
 import { haptics } from '@/ui/haptics';
 import { nav } from '@/ui/nav';
 import { showToast } from '@/ui/overlay';
@@ -297,6 +298,7 @@ function ToggleRow({ title, caption, value, onChange }: { title: string; caption
 /** How often opening Settings asks the server again what its last scan held back. */
 const ADMIN_RECHECK_MS = 30_000;
 let lastAdminCheck = 0;
+let adminCheckInFlight = false;
 
 /** Admin mode: upload / delete / rescan on the server with its ADMIN_TOKEN. */
 function AdminSection() {
@@ -317,9 +319,16 @@ function AdminSection() {
   // Again on each visit (throttled): the server rescans on its own, holding or releasing songs.
   useFocusEffect(
     useCallback(() => {
-      if (!canCheck || Date.now() - lastAdminCheck < ADMIN_RECHECK_MS) return;
-      lastAdminCheck = Date.now();
-      void checkAdmin();
+      if (!canCheck || adminCheckInFlight || Date.now() - lastAdminCheck < ADMIN_RECHECK_MS) return;
+      adminCheckInFlight = true;
+      // Only an answer counts towards the throttle: after a failed check the next visit asks again.
+      void checkAdmin()
+        .then((r) => {
+          if (r.ok) lastAdminCheck = Date.now();
+        })
+        .finally(() => {
+          adminCheckInFlight = false;
+        });
     }, [canCheck]),
   );
 
@@ -346,22 +355,9 @@ function AdminSection() {
     if (!r) return;
     if (r.held) {
       const n = r.held;
-      // Older servers don't name the folders.
-      const where = r.heldFolders?.length
-        ? `\n\nMissing from: ${r.heldFolders.map((d) => d || 'the music folder itself').join(', ')}${r.heldFolders.length >= 5 ? ', …' : ''}`
-        : '';
-      // Many songs missing at once is what an unplugged drive looks like: removing them would also take them out
-      // of likes and playlists on every device, so the server waits for this confirmation.
-      confirm({
-        title: `${plural(n, 'song')} missing on the server`,
-        message:
-          'Their files are no longer in the server’s music folder. If a drive or folder isn’t mounted, mount it ' +
-          'and rescan instead. Removing them also takes them out of likes and playlists on every device.' +
-          where,
-        confirmLabel: 'Remove',
-        destructive: true,
-        onConfirm: () => void rescan(n),
-      });
+      // Many songs missing at once is what an unplugged drive looks like: the server waits for this confirmation.
+      // Songs with a copy elsewhere move onto it when confirmed; only the rest leave likes and playlists.
+      confirm({ ...heldConfirm({ held: n, heldFolders: r.heldFolders, heldWithCopy: r.heldWithCopy }), onConfirm: () => void rescan(n) });
       return;
     }
     showToast(`Rescanned · +${r.added} −${r.removed} · ${plural(r.total, 'song')}`, 'success');
