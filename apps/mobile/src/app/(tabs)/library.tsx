@@ -236,6 +236,9 @@ function ArtistsGrid() {
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
   }, [remote, local]);
+  // An artist both on the server and in imported files shows twice (they open different pages); say which is which.
+  const onServer = useMemo(() => new Set(remote.map((a) => foldName(a.name))), [remote]);
+  const offlineWithLocal = isError && artists.length > 0;
   return (
     <View style={styles.flex} onLayout={(e) => setPageW(e.nativeEvent.layout.width)}>
       <FlashList
@@ -244,6 +247,13 @@ function ArtistsGrid() {
         numColumns={columns}
         keyExtractor={(a) => `${a.origin}:${a.id}`}
         contentContainerStyle={{ paddingHorizontal: wide ? space.xl : space.md, paddingBottom: space.xl + chromeInset }}
+        ListHeaderComponent={
+          offlineWithLocal ? (
+            <Text variant="caption" style={styles.gridNote}>
+              Server offline · artists on this phone
+            </Text>
+          ) : null
+        }
         ListEmptyComponent={
           isLoading ? (
             <Loading />
@@ -263,7 +273,9 @@ function ArtistsGrid() {
           <View style={styles.gridCell}>
             <AlbumCard
               title={item.name}
-              subtitle={`${item.trackCount} ${item.trackCount === 1 ? 'song' : 'songs'}`}
+              subtitle={`${item.trackCount} ${item.trackCount === 1 ? 'song' : 'songs'}${
+                item.origin === 'local' && onServer.has(foldName(item.name)) ? ' · on this phone' : ''
+              }`}
               artworkUri={item.artworkUri}
               round
               recyclingKey={`${item.origin}:${item.id}`}
@@ -275,6 +287,14 @@ function ArtistsGrid() {
     </View>
   );
 }
+
+/** Case- and accent-insensitive artist name, to spot the same artist on the server and on this phone. */
+const foldName = (name: string) =>
+  name
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLocaleLowerCase()
+    .trim();
 
 function RecentsList() {
   const tracks = useRecentlyPlayed(50);
@@ -397,6 +417,7 @@ const useStyles = makeStyles((colors) => ({
   chipsScroll: { flexGrow: 0 },
   chips: { gap: space.sm, paddingBottom: space.md },
   gridCell: { flex: 1, paddingHorizontal: space.xs + 2, paddingBottom: space.lg },
+  gridNote: { paddingHorizontal: space.xs + 2, paddingBottom: space.md },
   playRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingLeft: space.lg, paddingRight: space.md, paddingVertical: space.sm },
   newTile: {
     width: 56,
