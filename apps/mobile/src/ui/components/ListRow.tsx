@@ -13,6 +13,7 @@ function ListRowImpl({
   leading,
   title,
   subtitle,
+  subtitleColor,
   onPress,
   onLongPress,
   trailing,
@@ -25,6 +26,8 @@ function ListRowImpl({
   leading?: ReactNode;
   title: string;
   subtitle?: string;
+  /** A subtitle that needs attention (a warning); secondary text otherwise. */
+  subtitleColor?: string;
   onPress?: () => void;
   onLongPress?: () => void;
   trailing?: ReactNode;
@@ -51,7 +54,7 @@ function ListRowImpl({
           {title}
         </Text>
         {subtitle ? (
-          <Text variant="caption" numberOfLines={1}>
+          <Text variant="caption" numberOfLines={1} color={subtitleColor}>
             {subtitle}
           </Text>
         ) : null}

@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import { Image } from 'expo-image';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useState, type ReactNode } from 'react';
 import { Platform, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -293,6 +294,10 @@ function ToggleRow({ title, caption, value, onChange }: { title: string; caption
   );
 }
 
+/** How often opening Settings asks the server again what its last scan held back. */
+const ADMIN_RECHECK_MS = 30_000;
+let lastAdminCheck = 0;
+
 /** Admin mode: upload / delete / rescan on the server with its ADMIN_TOKEN. */
 function AdminSection() {
   const styles = useStyles();
@@ -309,9 +314,14 @@ function AdminSection() {
   const canCheck = settings.adminMode && !!settings.adminToken && !!settings.serverUrl;
 
   // Learn what the server's last scan held back (an unmounted drive), so the admin sees it without rescanning.
-  useEffect(() => {
-    if (canCheck && !info) void checkAdmin();
-  }, [canCheck, info]);
+  // Again on each visit (throttled): the server rescans on its own, holding or releasing songs.
+  useFocusEffect(
+    useCallback(() => {
+      if (!canCheck || Date.now() - lastAdminCheck < ADMIN_RECHECK_MS) return;
+      lastAdminCheck = Date.now();
+      void checkAdmin();
+    }, [canCheck]),
+  );
 
   const check = async () => {
     setChecking(true);
@@ -441,14 +451,12 @@ function AdminSection() {
               chevron
               onPress={nav.duplicates}
             />
+            {/* Songs held back by the last scan (an unmounted drive?): rescanning shows them again, or asks to remove them. */}
             <ListRow
-              leading={<RowIcon name="refresh" />}
-              title={rescanning ? 'Rescanning…' : 'Rescan server library'}
-              subtitle={
-                held > 0
-                  ? `${plural(held, 'song')} missing on the server (drive not mounted?) · tap to review`
-                  : 'Pick up files added to the music folder directly'
-              }
+              leading={<RowIcon name={held > 0 ? 'alert-circle-outline' : 'refresh'} color={held > 0 ? colors.warning : undefined} />}
+              title={rescanning ? 'Rescanning…' : held > 0 ? 'Review missing songs' : 'Rescan server library'}
+              subtitle={held > 0 ? `${plural(held, 'song')} missing · rescan to review` : 'Pick up files added to the music folder directly'}
+              subtitleColor={held > 0 ? colors.warning : undefined}
               onPress={rescanning ? undefined : () => void rescan()}
             />
           </View>
@@ -473,12 +481,12 @@ function Section({ title, icon, children }: { title: string; icon: IconName; chi
   );
 }
 
-function RowIcon({ name }: { name: IconName }) {
+function RowIcon({ name, color }: { name: IconName; color?: string }) {
   const styles = useStyles();
   const colors = useColors();
   return (
     <View style={styles.rowIcon}>
-      <Icon name={name} size={20} color={colors.text} />
+      <Icon name={name} size={20} color={color ?? colors.text} />
     </View>
   );
 }
