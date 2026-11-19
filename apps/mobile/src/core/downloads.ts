@@ -18,11 +18,17 @@ import { errorMessage, extForMime } from './util';
 
 const CONCURRENCY = 2;
 const PROGRESS_THROTTLE_MS = 250;
-const QUEUE_KEY = 'downloads.queue.v1';
+/** v1: serialized tracks still to download; v2 also keeps failed ones (with their error) across launches. */
+const QUEUE_KEY_V1 = 'downloads.queue.v1';
+const QUEUE_KEY = 'downloads.queue.v2';
+/** Automatic retries of a failed transfer (connection dropped, server restarting) before it shows as failed. */
+const RETRY_DELAYS_MS = [5_000, 30_000, 120_000];
+const MISSING_CHECK_CHUNK = 50;
 const PERSIST_DEBOUNCE_MS = 1000;
 const COMPLETION_BATCH_MS = 400;
 
-type Item = { track: AppTrack; status: Exclude<DownloadStatus, 'none' | 'done'>; error?: string };
+type Item = { track: AppTrack; status: Exclude<DownloadStatus, 'none' | 'done'>; error?: string; attempts?: number };
+type Persisted = { track: string; error?: string };
 type DlState = { items: Record<string, Item>; order: string[] };
 
 const dlStore = create<DlState>(() => ({ items: {}, order: [] }));
@@ -79,8 +85,30 @@ function flushQueue() {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = null;
   const { items, order } = dlStore.getState();
-  const pending = order.filter((k) => items[k].status !== 'error').map((k) => serializeTrack(items[k].track));
+  // Failed items are kept too: they come back as failed rows (retried automatically) instead of vanishing.
+  const pending: Persisted[] = order.map((k) => {
+    const it = items[k];
+    return it.status === 'error' ? { track: serializeTrack(it.track), error: it.error ?? 'Failed' } : { track: serializeTrack(it.track) };
+  });
   kv.set(QUEUE_KEY, JSON.stringify(pending));
+}
+
+const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Puts failed items back in the queue (network back, app start, or the user asked). */
+export function retryFailedDownloads(resetAttempts = true): void {
+  const { items } = dlStore.getState();
+  const failed = Object.keys(items).filter((k) => items[k].status === 'error');
+  if (!failed.length) return;
+  const next = { ...items };
+  for (const k of failed) {
+    clearTimeout(retryTimers.get(k));
+    retryTimers.delete(k);
+    next[k] = { ...items[k], status: 'queued', error: undefined, attempts: resetAttempts ? 0 : items[k].attempts };
+  }
+  dlStore.setState({ items: next });
+  persistQueue();
+  void pump();
 }
 
 AppState.addEventListener('change', (state) => {
@@ -132,8 +160,14 @@ function requeueActive() {
   }
 }
 
+let wasAllowed = true;
+
 function applyNetworkPolicy(net: NetworkState) {
-  if (allowedOn(net)) void pump();
+  const allowed = allowedOn(net);
+  // Back online (or on Wi-Fi again): transfers that failed meanwhile get another go.
+  if (allowed && !wasAllowed) retryFailedDownloads();
+  wasAllowed = allowed;
+  if (allowed) void pump();
   else requeueActive();
 }
 
@@ -277,9 +311,25 @@ async function run(key: string): Promise<void> {
       }
       // Cancelled: the item was already removed by `cancelDownload`.
     } else {
-      patch(key, { status: 'error', error: errorMessage(e) });
+      const attempts = (dlStore.getState().items[key]?.attempts ?? 0) + 1;
+      patch(key, { status: 'error', error: errorMessage(e), attempts });
       setProgress(key, null);
       persistQueue();
+      // Most failures are a dropped connection or a server restart: retry a few times with backoff.
+      const delay = RETRY_DELAYS_MS[attempts - 1];
+      if (delay !== undefined) {
+        clearTimeout(retryTimers.get(key));
+        retryTimers.set(
+          key,
+          setTimeout(() => {
+            retryTimers.delete(key);
+            if (dlStore.getState().items[key]?.status !== 'error') return;
+            patch(key, { status: 'queued', error: undefined });
+            persistQueue();
+            void pump();
+          }, delay),
+        );
+      }
     }
   } finally {
     controllers.delete(key);
@@ -299,6 +349,10 @@ export function downloadTracks(tracks: AppTrack[]): void {
     if (t.origin !== 'remote' || downloads.has(t.key)) continue;
     const existing = nextItems[t.key];
     if (existing && existing.status !== 'error') continue;
+    if (existing) {
+      clearTimeout(retryTimers.get(t.key));
+      retryTimers.delete(t.key);
+    }
     nextItems[t.key] = { track: t, status: 'queued' };
     if (!existing) nextOrder.push(t.key);
     changed = true;
@@ -310,6 +364,8 @@ export function downloadTracks(tracks: AppTrack[]): void {
 }
 
 export function cancelDownload(key: string): void {
+  clearTimeout(retryTimers.get(key));
+  retryTimers.delete(key);
   const active = controllers.get(key);
   drop(key);
   if (active) {
@@ -334,18 +390,29 @@ export async function removeDownload(key: string): Promise<void> {
   invalidate(libKeys.all);
 }
 
-/** Restore the pending queue persisted across launches and drop rows whose files vanished. */
+/**
+ * Restore the queue persisted across launches (failed items get a fresh round of retries) and drop rows whose
+ * files vanished.
+ */
 export async function resumeDownloads(): Promise<void> {
-  const raw = kv.getString(QUEUE_KEY);
+  const raw = kv.getString(QUEUE_KEY) ?? kv.getString(QUEUE_KEY_V1);
   if (raw) {
     try {
-      const tracks = (JSON.parse(raw) as string[]).map(parseTrack).filter((t): t is AppTrack => !!t);
+      const saved = (JSON.parse(raw) as (string | Persisted)[]).map((p) => (typeof p === 'string' ? { track: p } : p));
+      const tracks = saved.map((p) => parseTrack(p.track)).filter((t): t is AppTrack => !!t);
       downloadTracks(tracks);
     } catch {
       kv.remove(QUEUE_KEY);
     }
+    kv.remove(QUEUE_KEY_V1);
   }
-  const missing = [...libIndex.getState().downloads].filter(([, e]) => !fileAt(e.file).exists).map(([k]) => k);
+  // File checks are synchronous native calls: in chunks, yielding between them, so startup stays responsive.
+  const entries = [...libIndex.getState().downloads];
+  const missing: string[] = [];
+  for (let i = 0; i < entries.length; i += MISSING_CHECK_CHUNK) {
+    if (i) await new Promise((r) => setTimeout(r, 0));
+    for (const [k, e] of entries.slice(i, i + MISSING_CHECK_CHUNK)) if (!fileAt(e.file).exists) missing.push(k);
+  }
   if (!missing.length) return;
   const db = await getDb();
   for (const key of missing) {

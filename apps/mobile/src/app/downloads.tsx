@@ -2,7 +2,7 @@ import { FlashList } from '@shopify/flash-list';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { cancelDownload, downloadTracks, formatBytes, useDownloadProgress, useDownloads, useSettings, type AppTrack, type DownloadStatus } from '@/core';
+import { cancelDownload, downloadTracks, formatBytes, retryFailedDownloads, useDownloadProgress, useDownloads, useSettings, type AppTrack, type DownloadStatus } from '@/core';
 import { Backdrop } from '@/ui/components/Backdrop';
 import { Artwork } from '@/ui/components/Artwork';
 import { EmptyState } from '@/ui/components/EmptyState';
@@ -29,6 +29,7 @@ export default function DownloadsScreen() {
   const insets = useSafeAreaInsets();
   const { active, completedCount, bytesUsed } = useDownloads();
   const { downloadOnWifiOnly } = useSettings();
+  const failed = active.filter((a) => a.status === 'error').length;
 
   return (
     <View style={styles.root}>
@@ -64,6 +65,14 @@ export default function DownloadsScreen() {
               chevron
               onPress={() => nav.library('downloaded')}
             />
+            {failed > 0 ? (
+              <ListRow
+                leading={<Artwork uri={null} label="Retry" size={44} fallbackIcon="refresh" />}
+                title="Retry failed downloads"
+                subtitle={plural(failed, 'track')}
+                onPress={() => retryFailedDownloads()}
+              />
+            ) : null}
             {active.length > 0 ? (
               <Text variant="micro" style={styles.section}>
                 IN PROGRESS · {active.length}
