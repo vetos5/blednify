@@ -162,7 +162,7 @@ function Preview({ colors }: { colors: Palette }) {
             Your favourite artist
           </Text>
         </View>
-        <Icon name="heart" size={20} color={colors.accent} />
+        <Icon name="heart" size={20} color={colors.accentText} />
       </View>
       <View style={styles.previewRow}>
         <View style={[styles.previewArt, { backgroundColor: colors.surface3 }]} />
@@ -233,7 +233,7 @@ function NavStyleCard({ option, selected, onPress }: { option: (typeof NAV_STYLE
         <Text variant="bodyStrong" numberOfLines={1} style={styles.flex}>
           {option.name}
         </Text>
-        {selected ? <Icon name="checkmark-circle" size={18} color={colors.accent} /> : null}
+        {selected ? <Icon name="checkmark-circle" size={18} color={colors.accentText} /> : null}
       </View>
     </PressableScale>
   );
@@ -261,7 +261,7 @@ function PresetCard({ preset, selected, onPress }: { preset: ThemePreset; select
         <Text variant="bodyStrong" numberOfLines={1} style={styles.flex}>
           {preset.name}
         </Text>
-        {selected ? <Icon name="checkmark-circle" size={18} color={colors.accent} /> : null}
+        {selected ? <Icon name="checkmark-circle" size={18} color={colors.accentText} /> : null}
       </View>
     </PressableScale>
   );

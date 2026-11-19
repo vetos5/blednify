@@ -461,7 +461,7 @@ function Transport() {
         icon="shuffle"
         label={shuffle ? 'Shuffle on' : 'Shuffle off'}
         size={24}
-        color={shuffle ? colors.accent : colors.textSecondary}
+        color={shuffle ? colors.accentText : colors.textSecondary}
         haptic
         onPress={player.toggleShuffle}
       />
@@ -503,7 +503,7 @@ function Transport() {
           icon="repeat"
           label={REPEAT_ICON[repeat].label}
           size={24}
-          color={repeat === 'off' ? colors.textSecondary : colors.accent}
+          color={repeat === 'off' ? colors.textSecondary : colors.accentText}
           haptic
           onPress={player.cycleRepeat}
         />

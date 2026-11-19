@@ -310,7 +310,7 @@ export function BarButton({
         style={({ hovered, pressed }) => [styles.btn, hovered && styles.btnHover, pressed && styles.btnPressed, disabled && styles.dim]}>
         {({ hovered }) => (
           <>
-            <Icon name={icon} size={size} color={active ? colors.accent : hovered ? colors.text : colors.textSecondary} />
+            <Icon name={icon} size={size} color={active ? colors.accentText : hovered ? colors.text : colors.textSecondary} />
             {dot ? <View style={styles.dot} /> : null}
           </>
         )}

@@ -460,7 +460,7 @@ function Section({ title, icon, children }: { title: string; icon: IconName; chi
   return (
     <View style={[styles.card, glass]}>
       <View style={styles.sectionHead}>
-        <Icon name={icon} size={18} color={colors.accent} />
+        <Icon name={icon} size={18} color={colors.accentText} />
         <Text variant="micro">{title.toUpperCase()}</Text>
       </View>
       <View style={styles.sectionBody}>{children}</View>

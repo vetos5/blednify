@@ -11,7 +11,7 @@ export function EmptyState({ icon, title, message, children }: { icon: IconName;
   return (
     <View style={styles.root}>
       <View style={styles.badge}>
-        <Icon name={icon} size={30} color={colors.accent} strokeWidth={2.2} />
+        <Icon name={icon} size={30} color={colors.accentText} strokeWidth={2.2} />
       </View>
       <Text variant="subheading" style={styles.center}>
         {title}

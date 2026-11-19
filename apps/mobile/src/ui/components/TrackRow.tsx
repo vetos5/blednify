@@ -172,7 +172,7 @@ function WideTrackRow({ track, index, onPress, onMore, leading = 'artwork', subt
               )}
             </WebPressable>
             <View style={styles.wideTitle}>
-              <Text variant="bodyStrong" numberOfLines={1} color={isCurrent ? colors.accent : colors.text} style={styles.wideTitleText}>
+              <Text variant="bodyStrong" numberOfLines={1} color={isCurrent ? colors.accentText : colors.text} style={styles.wideTitleText}>
                 {track.title}
               </Text>
               <WebPressable onPress={() => nav.artist(track.artistId, track.origin)} style={styles.link}>

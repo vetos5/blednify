@@ -18,7 +18,7 @@ export function LikeButton({ track, size = 24 }: { track: AppTrack; size?: numbe
         icon={liked ? 'heart' : 'heart-outline'}
         label={liked ? 'Remove from Liked' : 'Like'}
         size={size}
-        color={liked ? colors.accent : colors.text}
+        color={liked ? colors.accentText : colors.text}
         onPress={() => {
           if (!liked) {
             haptics.success();

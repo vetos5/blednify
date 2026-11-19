@@ -119,7 +119,7 @@ function PlaylistsList() {
           <ListRow
             leading={
               <View style={styles.newTile}>
-                <Icon name="add" size={28} color={colors.accent} />
+                <Icon name="add" size={28} color={colors.accentText} />
               </View>
             }
             title="New playlist"
@@ -129,7 +129,7 @@ function PlaylistsList() {
             <ListRow
               leading={
                 <View style={styles.newTile}>
-                  <Icon name="playlist-import" size={26} color={colors.accent} />
+                  <Icon name="playlist-import" size={26} color={colors.accentText} />
                 </View>
               }
               title="Import playlist"

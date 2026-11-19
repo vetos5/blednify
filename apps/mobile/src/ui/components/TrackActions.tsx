@@ -98,7 +98,7 @@ function TrackActions({ track, context }: { track: AppTrack; context: TrackActio
       ) : null}
       <SheetAction
         icon={liked ? 'heart' : 'heart-outline'}
-        iconColor={liked ? colors.accent : undefined}
+        iconColor={liked ? colors.accentText : undefined}
         label={liked ? 'Remove from Liked' : 'Like'}
         onPress={() => void attempt(toggleLike(track), liked ? 'Removed from Liked' : 'Added to Liked')}
       />

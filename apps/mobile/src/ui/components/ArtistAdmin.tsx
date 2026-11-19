@@ -162,7 +162,7 @@ function MergeNameSheet({ a, b }: { a: ArtistView; b: ArtistView }) {
       <View>
         {names.map((n) => (
           <PressableScale key={n} onPress={() => setName(n)} accessibilityLabel={`Show as ${n}`} style={styles.option}>
-            <Icon name={n === name ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={n === name ? colors.accent : colors.textTertiary} />
+            <Icon name={n === name ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={n === name ? colors.accentText : colors.textTertiary} />
             <Text variant="bodyStrong" numberOfLines={1} style={styles.flex}>
               {n}
             </Text>

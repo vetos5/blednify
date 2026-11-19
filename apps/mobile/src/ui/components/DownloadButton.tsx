@@ -33,7 +33,7 @@ export function DownloadButton({ track, size = 24 }: { track: AppTrack; size?: n
         <View style={styles.ring}>
           <ProgressRing progress={status === 'queued' ? 0 : progress} size={size} />
         </View>
-        <Icon name="stop" size={Math.round(size * 0.4)} color={colors.accent} />
+        <Icon name="stop" size={Math.round(size * 0.4)} color={colors.accentText} />
       </Pressable>
     );
   }
@@ -43,7 +43,7 @@ export function DownloadButton({ track, size = 24 }: { track: AppTrack; size?: n
         icon="arrow-down-circle"
         label="Downloaded. Remove download"
         size={size}
-        color={colors.accent}
+        color={colors.accentText}
         onPress={() =>
           confirm({
             title: 'Remove download?',

@@ -37,10 +37,11 @@ describe('palette contrast', () => {
     }
   });
 
-  test('accent-coloured text reads at 4.5:1 on the background', () => {
+  test('accent-coloured text reads at 4.5:1 on the background and on cards and sheets', () => {
     for (const { name, pref } of combos) {
       const p = paletteFor(pref as never);
-      expect({ name, ok: contrast(p.accentText, p.bg) >= 4.5 }).toEqual({ name, ok: true });
+      for (const ground of ['bg', 'surface', 'surface2'] as const)
+        expect({ name, ground, ok: contrast(p.accentText, p[ground]) >= 4.5 }).toEqual({ name, ground, ok: true });
     }
   });
 });

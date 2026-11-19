@@ -174,11 +174,25 @@ const WHITE: RGB = [255, 255, 255];
 const BLACK: RGB = [0, 0, 0];
 const ON_ACCENT_DARK: RGB = [10, 10, 12];
 
-/** `color`, mixed towards `ink` just enough for small text on `bg` to read at WCAG AA (4.5:1). */
-function readableTint(color: RGB, ink: RGB, bg: RGB): RGB {
+/** `color`, mixed towards `ink` just enough for small text on every one of `grounds` to read at WCAG AA (4.5:1). */
+function readableTint(color: RGB, ink: RGB, grounds: readonly RGB[]): RGB {
+  const worst = (c: RGB) => Math.min(...grounds.map((g) => contrast(c, g)));
   let c = color;
-  for (let t = 0.05; contrast(c, bg) < 4.5 && t < 1.001; t += 0.05) c = mix(color, ink, Math.min(1, t));
+  for (let t = 0.05; worst(c) < 4.5 && t < 1.001; t += 0.05) c = mix(color, ink, Math.min(1, t));
   return c;
+}
+
+/**
+ * Accent text and meaningful accent glyphs sit on the background, on cards and sheets (surface, surface2) and on
+ * accent-soft chips over a card; the tint must read on the worst of them, not just on `bg`.
+ */
+function accentTextFor(p: Pick<Palette, 'accent' | 'text' | 'bg' | 'surface' | 'surface2'>): string {
+  const accent = parseHex(p.accent) ?? [229, 56, 59];
+  const ink = parseHex(p.text) ?? WHITE;
+  const surface = parseHex(p.surface) ?? accent;
+  const grounds = [p.bg, p.surface, p.surface2].map((h) => parseHex(h)).filter((c): c is RGB => !!c);
+  grounds.push(mix(surface, accent, 0.16));
+  return toHex(readableTint(accent, ink, grounds));
 }
 
 function derivePalette(bgHex: string, accentHex: string, backdrop: Backdrop): Palette {
@@ -188,7 +202,7 @@ function derivePalette(bgHex: string, accentHex: string, backdrop: Backdrop): Pa
   const ink: RGB = isLight ? [17, 17, 20] : [245, 245, 247];
   // Surfaces step towards the ink (lighter on dark themes, darker on light ones), tinted by the background.
   const step = (t: number) => toHex(isLight ? mix(bg, BLACK, t) : mix(bg, WHITE, t));
-  return {
+  const p: Palette = {
     bg: toHex(bg),
     surface: isLight ? '#FFFFFF' : step(0.05),
     surface2: step(isLight ? 0.04 : 0.085),
@@ -203,7 +217,7 @@ function derivePalette(bgHex: string, accentHex: string, backdrop: Backdrop): Pa
     accentDeep: toHex(mix(accent, BLACK, 0.5)),
     accentSoft: rgba(accent, 0.16),
     onAccent: contrast(accent, WHITE) >= contrast(accent, ON_ACCENT_DARK) ? '#FFFFFF' : toHex(ON_ACCENT_DARK),
-    accentText: toHex(readableTint(accent, ink, bg)),
+    accentText: '', // set below, from the surfaces
     danger: isLight ? '#D92D32' : '#FF5A5F',
     success: isLight ? '#1E9E62' : '#3DD68C',
     warning: isLight ? '#A15C07' : '#F5B83D',
@@ -216,6 +230,7 @@ function derivePalette(bgHex: string, accentHex: string, backdrop: Backdrop): Pa
     isLight,
     backdrop,
   };
+  return { ...p, accentText: accentTextFor(p) };
 }
 
 export function presetById(id: string): ThemePreset {
@@ -231,7 +246,9 @@ export function paletteFor(pref: ThemePref): Palette {
   const base = derivePalette(bg, accent, preset.backdrop ?? 'none');
   // Hand-tuned values only apply while the preset's own colors are in use.
   if (!preset.overrides || accent !== preset.accent || bg !== preset.bg) return base;
-  return { ...base, ...preset.overrides };
+  const merged = { ...base, ...preset.overrides };
+  // Overridden surfaces change what the accent text must read on.
+  return { ...merged, accentText: preset.overrides.accentText ?? accentTextFor(merged) };
 }
 
 // --- Hooks -----------------------------------------------------------------------------------------
