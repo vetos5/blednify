@@ -1,4 +1,5 @@
 import { FlashList } from '@shopify/flash-list';
+import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -31,22 +32,35 @@ function statusLabel(item: ActiveDownload, progress: number) {
   return `Downloading · ${Math.round(progress * 100)}%`;
 }
 
+/** A download row, or a section header between the rows still in progress and the failed ones. */
+type ListItem = ActiveDownload | { header: string };
+
+const isFailed = (a: ActiveDownload) => a.status === 'error' && !a.retrying;
+
 export default function DownloadsScreen() {
   const styles = useStyles();
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { active, completedCount, bytesUsed } = useDownloads();
   const { downloadOnWifiOnly } = useSettings();
-  // Rows with an automatic retry pending aren't failed yet.
-  const failed = active.filter((a) => a.status === 'error' && !a.retrying).length;
+  // Rows with an automatic retry pending aren't failed yet: they stay in progress.
+  const { failed, data } = useMemo(() => {
+    const going = active.filter((a) => !isFailed(a));
+    const stuck = active.filter(isFailed);
+    const list: ListItem[] = [];
+    if (going.length) list.push({ header: `IN PROGRESS · ${going.length}` }, ...going);
+    if (stuck.length) list.push({ header: `FAILED · ${stuck.length}` }, ...stuck);
+    return { failed: stuck.length, data: list };
+  }, [active]);
 
   return (
     <View style={styles.root}>
       <Backdrop />
       <ScreenHeader title="Downloads" />
       <FlashList
-        data={active}
-        keyExtractor={(a) => a.track.key}
+        data={data}
+        keyExtractor={(a) => ('header' in a ? a.header.split(' ')[0] : a.track.key)}
+        getItemType={(a) => ('header' in a ? 'header' : 'row')}
         contentContainerStyle={{ paddingBottom: insets.bottom + space.xl }}
         ListHeaderComponent={
           <View>
@@ -86,11 +100,6 @@ export default function DownloadsScreen() {
                 }
               />
             ) : null}
-            {active.length > 0 ? (
-              <Text variant="micro" style={styles.section}>
-                IN PROGRESS · {active.length}
-              </Text>
-            ) : null}
           </View>
         }
         ListEmptyComponent={
@@ -100,7 +109,15 @@ export default function DownloadsScreen() {
             message="Download songs from the player or any song’s menu to listen offline."
           />
         }
-        renderItem={({ item }) => <ActiveRow item={item} />}
+        renderItem={({ item }) =>
+          'header' in item ? (
+            <Text variant="micro" style={styles.section} accessibilityRole="header">
+              {item.header}
+            </Text>
+          ) : (
+            <ActiveRow item={item} />
+          )
+        }
       />
     </View>
   );
@@ -111,7 +128,7 @@ function ActiveRow({ item }: { item: ActiveDownload }) {
   const colors = useColors();
   const { track, status } = item;
   const progress = useDownloadProgress(track.key);
-  const failed = status === 'error' && !item.retrying;
+  const failed = isFailed(item);
   return (
     <View style={styles.row}>
       <Artwork uri={track.artworkUri} label={track.album || track.title} size={44} recyclingKey={track.key} />
