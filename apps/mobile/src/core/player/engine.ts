@@ -7,7 +7,10 @@
  * natively even while JS is throttled: when JS gets to run after an advance, native still holds at least
  * WINDOW_MIN - 1 upcoming tracks. Each advance tops the window back up (`syncWindow`), a slot whose source
  * changed (a download landed) is replaced on its own, and already-played slots are trimmed now and then.
- * The JS queue (`entries`) stays authoritative.
+ * The JS queue (`entries`) stays authoritative. With repeat-all the upcoming slots wrap to the queue's start.
+ * The slot behind the current one is kept equal to what the in-app Previous plays (after a shuffle or reorder it
+ * is replaced in place), so native previous lands in the same place; a native previous onto a stale slot is
+ * redirected in `onNativeIndex`.
  *
  * IMPORTANT (Android): expo-audio's Media3 lock-screen session must not observe playlist edits (the
  * notification's MediaController then crashed the app with "Invalid PlayerInfo update"). So auto-advance never
@@ -40,7 +43,7 @@ import { recordRecent } from '../library';
 import { kv } from '../settings';
 import { fromStorable, resolveTrack } from '../tracks';
 import type { AppTrack, PlayerState, RepeatMode } from '../types';
-import { errorMessage, shuffled } from '../util';
+import { shuffled } from '../util';
 import { lockArtwork, prefetchLockArtwork } from './lock-art';
 import { fromRow, toRow, type QueueRow } from './queue-rows';
 import { playerStore, progressStore } from './store';
@@ -209,6 +212,12 @@ function metadataOf(t: AppTrack): AudioMetadata {
   return meta;
 }
 
+/** Index the in-app Previous goes to from `i` (when not restarting the song); repeat-all wraps. */
+function prevIndexOf(i: number): number | null {
+  if (i > 0) return i - 1;
+  return S().repeat === 'all' && entries.length > 1 ? entries.length - 1 : null;
+}
+
 /** Index that follows `index` during playback; repeat-all wraps. */
 function nextIndex(): number | null {
   if (!entries.length) return null;
@@ -257,6 +266,30 @@ function clearWatchdog() {
   watchdog = null;
 }
 
+function isNativePlaying(): boolean {
+  try {
+    return nat?.playing === true;
+  } catch {
+    return false; // released natively
+  }
+}
+
+/**
+ * Position in the current song: native's own clock when it is on this song and nothing is pending (status events
+ * may lag far behind while JS is throttled), else the last published one.
+ */
+function livePositionMs(): number {
+  const published = progressStore.getState().positionMs;
+  if (!nat || !natReady || natBroken || advancingTo || pendingSeekMs !== null || seekGuard || !curLoaded) return published;
+  try {
+    if (nat.currentIndex !== natCur) return published;
+    const t = nat.currentTime;
+    return Number.isFinite(t) && t >= 0 ? t * 1000 : published;
+  } catch {
+    return published;
+  }
+}
+
 /**
  * Watches a load or play until native reports playing. A player can wedge without reporting an error: after a
  * Bluetooth headset vanished mid-song (battery died), every later load in that player hung until the timeout, and
@@ -271,11 +304,20 @@ function armWatchdog() {
   watchdog = setTimeout(
     () => {
       watchdog = null;
+      // JS may be throttled (background) with native's "playing" events still queued; ask native directly
+      // before tearing down a player that is in fact playing fine.
+      catchUpNative();
       if (!wantPlay || started || entries[index]?.uid !== uid) return;
+      if (natReady && !natBroken && !advancingTo && isNativePlaying()) {
+        started = true;
+        errorsSincePlaying = 0;
+        return;
+      }
       if (quiet) {
         quietRetryUid = uid;
+        const at = livePositionMs();
         natBroken = true;
-        load(index, true, progressStore.getState().positionMs);
+        load(index, true, at);
         return;
       }
       // Usually a connection that stalls without failing outright; treat it like one rather than skipping.
@@ -377,10 +419,16 @@ function catchUpNative() {
 
 type Slot = { uid: number; src: Source; key: string };
 
-/** Upcoming playable entries that may follow the current one natively (no repeat-all wrap), up to WINDOW_AHEAD. */
+/**
+ * Upcoming playable entries that may follow the current one natively, up to WINDOW_AHEAD. With repeat-all the
+ * window wraps to the start of the queue (each entry once), so looping the queue is gapless like any advance.
+ */
 function desiredTail(): Slot[] {
   const out: Slot[] = [];
-  for (let i = index + 1; i < entries.length && out.length < WINDOW_AHEAD; i++) {
+  const n = entries.length;
+  const upcoming = S().repeat === 'all' ? n - 1 : n - 1 - index;
+  for (let k = 1; k <= upcoming && out.length < WINDOW_AHEAD; k++) {
+    const i = (index + k) % n;
     const src = sourceOf(entries[i].track);
     if (!src) break;
     out.push({ uid: entries[i].uid, src, key: srcKey(src) });
@@ -411,9 +459,22 @@ function syncWindow() {
   for (let k = 0; k < same; k++) if (want[k].key !== haveKeys[k]) replace.push(k);
   const drop = haveUids.length - same;
   const low = same < Math.min(want.length, WINDOW_MIN);
+  // The slot behind the current one is what native "previous" (lock screen, headset, car) plays. After a shuffle,
+  // reorder or removal it can hold a song that no longer comes before this one; fix it so native previous lands
+  // where the in-app button would. Not mid-skip (native may still be on that slot).
+  const pi = prevIndexOf(index);
+  const prevEntry = pi === null ? undefined : entries[pi];
+  const prevSrc = prevEntry ? sourceOf(prevEntry.track) : null;
+  const behindStale = !advancingTo && curSlot > 0 && natUids[curSlot - 1] !== (prevSrc ? prevEntry?.uid : undefined);
+  // Replaced in place (count unchanged) when there is a previous song; else every slot behind is removed (then
+  // native previous falls through to `remoteSkip`), which shifts indices like `trim` below and so needs the same
+  // guarantee: more slots trimmed than added. When that doesn't hold yet, `onNativeIndex` catches a native
+  // previous that lands on a stale slot.
+  const replaceBehind = behindStale && !!prevSrc;
   // Fill up whenever the playlist is edited anyway, so edits stay rare.
-  const add = low || drop > 0 || replace.length > 0 ? want.slice(same) : [];
-  if (!replace.length && !drop && !add.length) {
+  const add = low || drop > 0 || replace.length > 0 || behindStale ? want.slice(same) : [];
+  const clearBehind = behindStale && !prevSrc && curSlot > add.length;
+  if (!replace.length && !drop && !add.length && !replaceBehind && !clearBehind) {
     windowDirty = false;
     return;
   }
@@ -426,9 +487,16 @@ function syncWindow() {
   // Trimming shifts native indices. It is only done when it removes more slots than are added (TRIM_BEHIND >
   // WINDOW_AHEAD), so no status event from before or during this edit has the final track count, and the
   // `trackCount` check in `onStatus` drops all of them.
-  const trim = !advancingTo && curSlot > TRIM_BEHIND ? curSlot - KEEP_BEHIND : 0;
+  const trim = clearBehind ? curSlot : !advancingTo && curSlot > TRIM_BEHIND ? curSlot - KEEP_BEHIND : 0;
   // The JS mirror first, then native in one call (see `editNative`).
   const edits: PlaylistEdit[] = [];
+  if (replaceBehind && prevEntry && prevSrc) {
+    // Insert before the stale slot, then remove it: the current slot's index is the same before and after.
+    const slot = curSlot - 1;
+    edits.push({ op: 'insert', index: slot, source: prevSrc }, { op: 'remove', index: slot + 1 });
+    natUids[slot] = prevEntry.uid;
+    natUris[slot] = srcKey(prevSrc);
+  }
   for (const k of replace) {
     const slot = curSlot + 1 + k;
     edits.push({ op: 'insert', index: slot, source: want[k].src }, { op: 'remove', index: slot + 1 });
@@ -552,11 +620,29 @@ function stopAll() {
 
 function onNativeIndex(ci: number) {
   const uid = natUids[ci];
+  const forward = ci > natCur;
   natCur = ci;
   const idx = entries.findIndex((e) => e.uid === uid);
   if (idx < 0) {
-    // The entry native moved to was removed from the queue in the meantime.
-    load(Math.min(Math.max(index, 0), entries.length - 1), wantPlay);
+    // The entry native moved to was removed from the queue in the meantime (its slot not yet synced): go where
+    // that move meant to go, not back to the song being left (which replayed it from the start).
+    const ni = forward ? nextIndex() : Math.max(index - 1, 0);
+    if (ni === null) {
+      wantPlay = false;
+      kv.set(POSITION_KEY, 0);
+      load(0, false);
+      return;
+    }
+    load(Math.min(Math.max(ni, 0), entries.length - 1), wantPlay);
+    return;
+  }
+  const prevIdx = prevIndexOf(index);
+  if (!forward && index >= 0 && idx >= index && idx !== prevIdx) {
+    // Native went back to a slot that no longer holds the previous song (a shuffle or reorder `syncWindow` hasn't
+    // fixed yet): do what the in-app Previous does instead of continuing from wherever that song is now.
+    const target = prevIdx ?? index;
+    kv.set(POSITION_KEY, 0);
+    load(target, wantPlay);
     return;
   }
   // `next()` already moved JS to this entry and reset its counters; a seek made since then targets this song.
@@ -598,7 +684,12 @@ function onStatus(s: NativeStatus) {
   if (s.error) {
     const e = s.error;
     const network = s.network === true || isNetworkError(e);
-    onPlaybackError(network ? "Can't reach the server" : typeof e === 'string' ? e : errorMessage(e), network);
+    if (network) onPlaybackError("Can't reach the server", true);
+    else {
+      console.warn('[player] playback error', e);
+      const { message, stop } = describeError(e, entries[index]?.track);
+      onPlaybackError(message, false, false, stop);
+    }
     return;
   }
   if (s.didJustFinish) {
@@ -693,6 +784,25 @@ function onNativeFinished() {
   load(0, false);
 }
 
+/**
+ * Words for a playback error that isn't a dropped connection. Android errors carry Media3's `code` and the HTTP
+ * `httpStatus` (expo-audio patch); their own message ("Source error") means nothing to a listener. A refused token
+ * fails every song the same way, so it stops instead of skipping.
+ */
+function describeError(e: unknown, t: AppTrack | undefined): { message: string; stop: boolean } {
+  if (typeof e === 'string') return { message: e, stop: false };
+  const { code, httpStatus } = (e && typeof e === 'object' ? e : {}) as { code?: unknown; httpStatus?: unknown };
+  const title = t ? `“${t.title}”` : 'This song';
+  if (httpStatus === 401 || httpStatus === 403)
+    return { message: "Your server didn't accept the access token. Check it in Settings.", stop: true };
+  if (httpStatus === 404) return { message: `${title} is no longer on the server`, stop: false };
+  const c = Number(code);
+  // 3xxx: the file couldn't be parsed; 4xxx: decoding failed.
+  if (c >= 3000 && c < 5000) return { message: `Can't play ${title}: the file is damaged or unsupported`, stop: false };
+  if (t?.localUri && c >= 2000 && c < 3000) return { message: `Can't open the file of ${title}`, stop: false };
+  return { message: `Couldn't play ${title}`, stop: false };
+}
+
 /** Android errors carry `{ code, httpStatus }` (see the expo-audio patch). */
 function isNetworkError(e: unknown): boolean {
   if (!e || typeof e !== 'object') return false;
@@ -748,7 +858,7 @@ function waitForNetwork(message: string) {
   });
 }
 
-function onPlaybackError(message: string, network = false, recreate = false) {
+function onPlaybackError(message: string, network = false, recreate = false, stop = false) {
   // Auto-skip only while the user wants playback; a paused/stopped player just reports the error.
   const resume = wantPlay;
   clearWatchdog();
@@ -766,7 +876,7 @@ function onPlaybackError(message: string, network = false, recreate = false) {
   errorStreak++;
   playerStore.setState({ error: message, errorId: S().errorId + 1, isBuffering: false });
   const ni = nextIndex();
-  if (!resume || errorStreak >= Math.min(MAX_ERROR_STREAK, entries.length) || ni === null) {
+  if (stop || !resume || errorStreak >= Math.min(MAX_ERROR_STREAK, entries.length) || ni === null) {
     wantPlay = false;
     playerStore.setState({ isPlaying: false });
     return;
@@ -1055,9 +1165,11 @@ function next() {
 }
 
 function previous() {
+  // Like `next`: a lock-screen / media-key skip JS hasn't heard about yet must count.
+  catchUpNative();
   if (index < 0) return;
   const { repeat } = S();
-  if (progressStore.getState().positionMs > RESTART_THRESHOLD_MS || (index === 0 && repeat !== 'all')) {
+  if (livePositionMs() > RESTART_THRESHOLD_MS || (index === 0 && repeat !== 'all')) {
     seekTo(0);
     return;
   }

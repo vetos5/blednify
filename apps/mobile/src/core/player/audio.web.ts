@@ -143,6 +143,15 @@ class WebPlaylist {
     return this.sources.length;
   }
 
+  /** Read synchronously by the engine's watchdog and `previous` (native has the same getters). */
+  get playing(): boolean {
+    return this.status().playing;
+  }
+
+  get currentTime(): number {
+    return this.status().currentTime;
+  }
+
   get loop(): LoopMode {
     return this.loopMode;
   }
