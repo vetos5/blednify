@@ -168,7 +168,6 @@ function listUnreachable(q: { isError: boolean; data: unknown; error: unknown })
 export function useAllRemoteTracks(): {
   tracks: AppTrack[];
   isLoading: boolean;
-  isError: boolean;
   unreachable: Unreachable;
   refetch(): void;
 } {
@@ -185,7 +184,7 @@ export function useAllRemoteTracks(): {
     [q.data, base, ctx],
   );
   const { refetch } = q;
-  return { tracks, isLoading: q.isLoading, isError: q.isError && !q.data, unreachable: listUnreachable(q), refetch: () => void refetch() };
+  return { tracks, isLoading: q.isLoading, unreachable: listUnreachable(q), refetch: () => void refetch() };
 }
 
 async function fetchAllAlbums(base: string, signal: AbortSignal): Promise<ApiAlbum[]> {
@@ -207,7 +206,6 @@ const EMPTY_ARTISTS: ArtistView[] = [];
 export function useRemoteAlbums(): {
   albums: AlbumView[];
   isLoading: boolean;
-  isError: boolean;
   unreachable: Unreachable;
   refetch(): void;
 } {
@@ -220,7 +218,7 @@ export function useRemoteAlbums(): {
   });
   const albums = useMemo(() => (q.data ? q.data.map((a) => fromApiAlbum(a, base)) : EMPTY_ALBUMS), [q.data, base]);
   const { refetch } = q;
-  return { albums, isLoading: q.isLoading, isError: q.isError && !q.data, unreachable: listUnreachable(q), refetch: () => void refetch() };
+  return { albums, isLoading: q.isLoading, unreachable: listUnreachable(q), refetch: () => void refetch() };
 }
 
 async function fetchAllArtists(base: string, signal: AbortSignal): Promise<ApiArtist[]> {
@@ -235,7 +233,6 @@ async function fetchAllArtists(base: string, signal: AbortSignal): Promise<ApiAr
 export function useRemoteArtists(): {
   artists: ArtistView[];
   isLoading: boolean;
-  isError: boolean;
   unreachable: Unreachable;
   refetch(): void;
 } {
@@ -248,7 +245,7 @@ export function useRemoteArtists(): {
   });
   const artists = useMemo(() => (q.data ? q.data.map((a) => fromApiArtist(a, base)) : EMPTY_ARTISTS), [q.data, base]);
   const { refetch } = q;
-  return { artists, isLoading: q.isLoading, isError: q.isError && !q.data, unreachable: listUnreachable(q), refetch: () => void refetch() };
+  return { artists, isLoading: q.isLoading, unreachable: listUnreachable(q), refetch: () => void refetch() };
 }
 
 /**
