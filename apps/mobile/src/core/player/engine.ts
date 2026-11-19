@@ -716,6 +716,8 @@ function onStatus(s: NativeStatus) {
     }
     if (s.isLoaded) {
       errorStreak = 0;
+      // A streamed song plays (the user picked one): the server answers, so offline playback is over.
+      if (offlineOnly && cur && !resolveTrack(cur).localUri) setOfflineOnly(false);
       if (netRetry) {
         cancelNetworkRetry();
         playerStore.setState({ error: null });
@@ -839,6 +841,16 @@ function phoneOffline(net: { isConnected?: boolean | null; isInternetReachable?:
   return net.isInternetReachable === false && !isLocalHost(getServerBase());
 }
 
+/**
+ * Back online for sure: connected, and the internet answers (or the server is on the LAN). Right after Wi-Fi
+ * associates reachability is often still unknown (null), or a captive portal holds it; leaving offline playback
+ * then would fill the window with streamed songs that fail again.
+ */
+function phoneOnline(net: { isConnected?: boolean | null; isInternetReachable?: boolean | null }): boolean {
+  if (net.isConnected !== true) return false;
+  return net.isInternetReachable === true || isLocalHost(getServerBase());
+}
+
 let offlineSub: { remove(): void } | null = null;
 
 /** Enter or leave offline playback; back online, the window is filled with streamed songs again. */
@@ -847,7 +859,7 @@ function setOfflineOnly(on: boolean) {
   offlineOnly = on;
   if (on) {
     offlineSub ??= addNetworkStateListener((net) => {
-      if (!phoneOffline(net)) setOfflineOnly(false);
+      if (phoneOnline(net)) setOfflineOnly(false);
     });
     return;
   }
