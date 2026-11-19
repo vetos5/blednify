@@ -137,6 +137,8 @@ export {
 
 // Settings
 export {
+  isCleartextPublic,
+  normalizeServerUrl,
   saveConnection,
   setNavStyle,
   setThemePref,

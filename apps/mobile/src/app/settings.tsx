@@ -9,6 +9,8 @@ import {
   appIconSupported,
   checkAdmin,
   formatBytes,
+  isCleartextPublic,
+  normalizeServerUrl,
   rescanServer,
   saveConnection,
   serverUrlProblem,
@@ -41,14 +43,6 @@ import { useGlassSurface } from '@/ui/chrome';
 
 type TestResult = { ok: boolean; message: string } | null;
 
-/** Trim, add a scheme when missing, drop trailing slashes. Empty stays empty (offline mode). */
-function normalizeUrl(raw: string): string {
-  const v = raw.trim();
-  if (!v) return '';
-  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : `http://${v}`;
-  return withScheme.replace(/\/+$/, '');
-}
-
 export default function SettingsScreen() {
   const styles = useStyles();
   const glass = useGlassSurface();
@@ -63,7 +57,7 @@ export default function SettingsScreen() {
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<TestResult>(null);
 
-  const normalized = normalizeUrl(url);
+  const normalized = normalizeServerUrl(url);
   const dirty = normalized !== settings.serverUrl || token.trim() !== settings.accessToken;
 
   const runTest = async () => {
@@ -152,6 +146,15 @@ export default function SettingsScreen() {
             onSubmitEditing={runTest}
             style={styles.input}
           />
+          {normalized && isCleartextPublic(normalized) && (token.trim() || settings.adminToken) ? (
+            <View style={styles.result}>
+              <Icon name="alert-circle-outline" size={16} color={colors.warning} />
+              <Text variant="caption" color={colors.warning} style={styles.flex}>
+                This address uses http:// over the internet: your tokens travel unencrypted. Use https:// if the server
+                supports it.
+              </Text>
+            </View>
+          ) : null}
           {result ? (
             <View style={styles.result}>
               <Icon name={result.ok ? 'checkmark-circle' : 'alert-circle'} size={16} color={result.ok ? colors.success : colors.danger} />
