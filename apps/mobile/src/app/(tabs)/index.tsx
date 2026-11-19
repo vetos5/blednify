@@ -35,6 +35,7 @@ import { useChromeInset , useGlassSurface } from '@/ui/chrome';
 import { useGutter, useIsWide } from '@/ui/layout';
 import { makeStyles, radius, space, useColors } from '@/ui/theme';
 import { spokenLabel } from '@/ui/a11y';
+import { plural } from '@/ui/format';
 
 function greeting(date = new Date()) {
   const h = date.getHours();
@@ -279,7 +280,7 @@ function QuickGrid({ recent, likedCount }: { recent: AppTrack[]; likedCount: num
       {hasLiked ? (
         <QuickTile
           title="Liked songs"
-          subtitle={`${likedCount} ${likedCount === 1 ? 'track' : 'tracks'}`}
+          subtitle={plural(likedCount, 'song')}
           wide={wide}
           art={<Artwork uri={null} label="Liked" size={wide ? 64 : 56} radius={0} fallbackIcon="heart" />}
           onPress={() => nav.library('liked')}

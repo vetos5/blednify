@@ -12,6 +12,7 @@ import { ListRow } from './ListRow';
 import { PlaylistArtwork } from './PlaylistArtwork';
 import { PromptSheet } from './PromptSheet';
 import { Text } from './Text';
+import { plural } from '@/ui/format';
 
 /** Sheet content: choose (or create) a playlist to add `tracks` to. */
 export function PlaylistPicker({ tracks }: { tracks: AppTrack[] }) {
@@ -44,7 +45,7 @@ export function PlaylistPicker({ tracks }: { tracks: AppTrack[] }) {
               key={p.id}
               leading={<PlaylistArtwork uris={p.artworkUris} name={p.name} size={44} />}
               title={p.name}
-              subtitle={`${p.trackCount} ${p.trackCount === 1 ? 'track' : 'tracks'}`}
+              subtitle={plural(p.trackCount, 'song')}
               onPress={() => {
                 haptics.select();
                 closeSheet();

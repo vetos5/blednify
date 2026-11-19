@@ -116,7 +116,7 @@ export function MiniPlayer() {
           ) : (
             <IconButton icon={isPlaying ? 'pause' : 'play'} label={isPlaying ? 'Pause' : 'Play'} size={26} haptic onPress={player.togglePlay} />
           )}
-          <IconButton icon="play-skip-forward" label="Next track" size={22} haptic onPress={player.next} />
+          <IconButton icon="play-skip-forward" label="Next song" size={22} haptic onPress={player.next} />
           <MiniProgress inset={floating ? PILL_RADIUS : space.sm} />
         </View>
       </GestureDetector>

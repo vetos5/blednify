@@ -5,6 +5,7 @@ import { playerStore } from '@/core/player/store';
 import { haptics } from './haptics';
 import { confirm } from './components/ConfirmSheet';
 import { dismissToast, showToast } from './overlay';
+import { plural } from '@/ui/format';
 
 export function errorMessage(e: unknown): string {
   if (e instanceof Error && e.message) return e.message;
@@ -75,7 +76,7 @@ export async function importMusic() {
     dismissToast(toastId);
     if (imported === 0 && skipped === 0) return; // picker cancelled
     haptics.success();
-    const parts = [`Imported ${imported} ${imported === 1 ? 'track' : 'tracks'}`];
+    const parts = [`Imported ${plural(imported, 'song')}`];
     if (skipped > 0) parts.push(`${skipped} skipped`);
     showToast(parts.join(' · '), imported > 0 ? 'success' : 'info');
   } catch (e) {

@@ -114,7 +114,7 @@ export default function ArtistScreen() {
                 <AlbumCard
                   width={cardW}
                   title={item.title}
-                  subtitle={item.year ? String(item.year) : `${item.trackCount} tracks`}
+                  subtitle={item.year ? String(item.year) : plural(item.trackCount, 'song')}
                   artworkUri={item.artworkUri}
                   recyclingKey={albumKey(item)}
                   onPress={() => nav.album(item.id, item.origin)}

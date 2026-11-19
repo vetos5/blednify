@@ -9,6 +9,7 @@ import { confirm } from './ConfirmSheet';
 import { SheetAction, SheetHeader } from './ActionSheet';
 import { PromptSheet } from './PromptSheet';
 import { openShare } from './ShareSheet';
+import { plural } from '@/ui/format';
 
 /** Ask for a name, create the playlist and open it. */
 export function promptNewPlaylist() {
@@ -33,7 +34,7 @@ export function openPlaylistActions(
   const shareable = opts.tracks ? shareableIds(opts.tracks) : [];
   showSheet(
     <View>
-      <SheetHeader title={p.name} subtitle={`${p.trackCount} ${p.trackCount === 1 ? 'track' : 'tracks'}`} />
+      <SheetHeader title={p.name} subtitle={plural(p.trackCount, 'song')} />
       {shareable.length ? (
         <SheetAction
           icon="share-outline"
@@ -70,7 +71,7 @@ export function openPlaylistActions(
         onPress={() =>
           confirm({
             title: 'Delete playlist?',
-            message: `“${p.name}” will be deleted. Tracks stay in your library.`,
+            message: `“${p.name}” will be deleted. Its songs stay in your library.`,
             confirmLabel: 'Delete',
             destructive: true,
             onConfirm: async () => {

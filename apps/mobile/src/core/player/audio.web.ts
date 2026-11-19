@@ -395,10 +395,10 @@ class WebPlaylist {
       err?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
         ? 'This audio format is not supported by the browser, or the server refused the request'
         : err?.code === MediaError.MEDIA_ERR_NETWORK
-          ? 'Network error while loading the track'
+          ? 'Network error while loading the song'
           : err?.code === MediaError.MEDIA_ERR_DECODE
             ? 'The audio file could not be decoded'
-            : 'Track could not be played';
+            : 'Song could not be played';
     this.isLoaded = false;
     this.buffering = false;
     const error = err?.message ? `${reason} (${err.message})` : reason;

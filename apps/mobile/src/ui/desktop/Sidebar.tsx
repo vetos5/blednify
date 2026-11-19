@@ -16,6 +16,7 @@ import { makeStyles, radius, space, useColors } from '../theme';
 import { requestSearchFocus } from './store';
 import { Tip } from './Tip';
 import { Pressable } from './web';
+import { plural } from '@/ui/format';
 
 /** Left navigation of the wide layout. `rail` collapses it to icons on narrower windows. */
 export function Sidebar({ rail }: { rail: boolean }) {
@@ -244,7 +245,7 @@ function PlaylistItem({ playlist: p, rail, active }: { playlist: Playlist; rail:
     <LibraryItem
       rail={rail}
       label={p.name}
-      sub={`${p.trackCount} ${p.trackCount === 1 ? 'track' : 'tracks'}`}
+      sub={plural(p.trackCount, 'song')}
       art={<PlaylistArtwork uris={p.artworkUris} name={p.name} size={rail ? 40 : 36} />}
       active={active}
       onPress={() => nav.playlist(p.id)}
@@ -266,7 +267,7 @@ function Footer({ rail, active }: { rail: boolean; active: boolean }) {
     : server.isLoading
       ? 'Connecting…'
       : server.online
-        ? `${server.trackCount.toLocaleString()} tracks`
+        ? plural(server.trackCount, 'song')
         : server.needsToken
           ? 'Needs a token'
           : 'Server offline';

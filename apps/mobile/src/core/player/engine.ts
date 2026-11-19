@@ -321,7 +321,7 @@ function armWatchdog() {
         return;
       }
       // Usually a connection that stalls without failing outright; treat it like one rather than skipping.
-      onPlaybackError(curLoaded ? 'Playback stalled' : 'Track took too long to load', true, true);
+      onPlaybackError(curLoaded ? 'Playback stalled' : 'Song took too long to load', true, true);
     },
     quiet ? STALL_MS : LOAD_TIMEOUT_MS,
   );

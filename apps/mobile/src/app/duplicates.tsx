@@ -16,6 +16,7 @@ import { useReadableColumn } from '@/ui/layout';
 import { nav } from '@/ui/nav';
 import { makeStyles, radius, space } from '@/ui/theme';
 import { spokenLabel } from '@/ui/a11y';
+import { plural } from '@/ui/format';
 
 /** Admin: artists that look like the same artist written differently, to merge or dismiss. */
 export default function DuplicatesScreen() {
@@ -92,7 +93,7 @@ function Side({ artist }: { artist: ArtistView }) {
         {artist.name}
       </Text>
       <Text variant="caption">
-        {artist.trackCount} {artist.trackCount === 1 ? 'track' : 'tracks'}
+        {plural(artist.trackCount, 'song')}
       </Text>
     </PressableScale>
   );
