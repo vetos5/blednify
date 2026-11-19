@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { testServer, type TestServer } from "./fixtures";
-import { MAX_LIBRARIES } from "../src/user-library";
+import { MAX_LIBRARIES, MAX_LIBRARIES_TOTAL_BYTES } from "../src/user-library";
 
 const KEY = "k".repeat(10) + "AbC_-123456789";
 const OTHER = "z".repeat(30);
@@ -125,6 +125,26 @@ describe("library backup", () => {
       expect((await p({ last: true }, KEY)).status).toBe(200);
       expect((await p({ one: "too many" }, OTHER)).status).toBe(507);
       expect((await p({ still: "fine" }, KEY, 1)).status).toBe(200);
+    } finally {
+      s.close();
+    }
+  });
+
+  test("the byte total counts UTF-8 bytes and also caps an existing backup that grows", async () => {
+    const s = testServer();
+    try {
+      const p = (data: unknown, key: string, base = 0) => call(s, "PUT", withKey(key), { baseVersion: base, data });
+      expect((await p({ name: "Плейлист" }, KEY)).status).toBe(200);
+      // Leave 64 bytes of room: a zero-filled filler counted in bytes (length() of text would stop at the first NUL).
+      const used = (s.ctx.db.sql.query("SELECT SUM(length(CAST(data AS BLOB))) AS b FROM libraries").get() as { b: number }).b;
+      s.ctx.db.sql
+        .query("INSERT INTO libraries (id, version, data, created_at, updated_at) VALUES ('filler', 1, CAST(zeroblob(?) AS TEXT), '', '')")
+        .run(MAX_LIBRARIES_TOTAL_BYTES - used - 64);
+      // 40 Cyrillic letters are 80 bytes: past the room although only 40 characters longer.
+      expect((await p({ name: "Плейлист", more: "я".repeat(40) }, KEY, 1)).status).toBe(507);
+      expect((await p({ name: "Плейлист", more: "я".repeat(10) }, KEY, 1)).status).toBe(200);
+      // Shrinking is always allowed.
+      expect((await p({}, KEY, 2)).status).toBe(200);
     } finally {
       s.close();
     }

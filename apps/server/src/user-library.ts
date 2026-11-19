@@ -7,8 +7,9 @@ import type { Db } from "./db";
 const KEY_RE = /^[A-Za-z0-9_-]{20,128}$/;
 export const MAX_LIBRARY_BYTES = 8 * 1024 * 1024;
 /**
- * New keys are refused (507) past these totals: a personal server has a handful of devices, and with open reads
- * (no LISTEN_TOKEN) anyone reaching it could otherwise fill DATA_DIR with 8 MiB documents under random keys.
+ * New keys are refused (507) past these totals, and so is an existing key growing past the byte total: a personal
+ * server has a handful of devices, and with open reads (no LISTEN_TOKEN) anyone reaching it could otherwise fill
+ * DATA_DIR with 8 MiB documents under random keys. Sizes are UTF-8 bytes.
  */
 export const MAX_LIBRARIES = 500;
 export const MAX_LIBRARIES_TOTAL_BYTES = 256 * 1024 * 1024;
@@ -29,7 +30,7 @@ export function userLibraryRoutes(db: Db, listenOk: ((c: Context) => boolean) | 
   const insert = sql.query("INSERT INTO libraries (id, version, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
   const update = sql.query("UPDATE libraries SET version = ?, data = ?, updated_at = ? WHERE id = ?");
   const remove = sql.query("DELETE FROM libraries WHERE id = ?");
-  const totals = sql.query<{ n: number; bytes: number | null }, []>("SELECT COUNT(*) AS n, SUM(length(data)) AS bytes FROM libraries");
+  const totals = sql.query<{ n: number; bytes: number | null }, []>("SELECT COUNT(*) AS n, SUM(length(CAST(data AS BLOB))) AS bytes FROM libraries");
 
   // The global listen guard covers GET/HEAD only; this one covers every method.
   r.use("*", async (c, next) => {
@@ -62,15 +63,20 @@ export function userLibraryRoutes(db: Db, listenOk: ((c: Context) => boolean) | 
       if (!body.success) fail(400, "expected JSON { baseVersion: integer >= 0, data: object }");
       const { baseVersion, data } = body.data!;
       const text = JSON.stringify(data);
+      const bytes = Buffer.byteLength(text, "utf8");
       const now = new Date().toISOString();
       const result = sql.transaction(() => {
         const current = read.get(id);
         const version = current?.version ?? 0;
         if (baseVersion !== version) return { conflict: current ? doc(current) : { version: 0, updatedAt: null, data: null } };
-        if (current) update.run(version + 1, text, now, id);
-        else {
-          const t = totals.get()!;
-          if (t.n >= MAX_LIBRARIES || (t.bytes ?? 0) + text.length > MAX_LIBRARIES_TOTAL_BYTES) return { full: true as const };
+        const t = totals.get()!;
+        if (current) {
+          // Growth only: a backup that shrinks or stays the same size is always saved.
+          const grows = bytes - Buffer.byteLength(current.data, "utf8");
+          if (grows > 0 && (t.bytes ?? 0) + grows > MAX_LIBRARIES_TOTAL_BYTES) return { full: true as const };
+          update.run(version + 1, text, now, id);
+        } else {
+          if (t.n >= MAX_LIBRARIES || (t.bytes ?? 0) + bytes > MAX_LIBRARIES_TOTAL_BYTES) return { full: true as const };
           insert.run(id, 1, text, now, now);
         }
         return { ok: { version: version + 1, updatedAt: now } };
