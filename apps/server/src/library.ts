@@ -411,6 +411,21 @@ export class Library {
     return ids.filter((id) => !moved.has(id) && q.get(id) != null);
   }
 
+  /** A value stored with `setMeta`, or undefined (also when it can't be parsed). */
+  getMeta<T>(key: string): T | undefined {
+    const row = this.sql.query<{ value: string }, [string]>("SELECT value FROM meta WHERE key = ?").get(key);
+    if (!row) return undefined;
+    try {
+      return JSON.parse(row.value) as T;
+    } catch {
+      return undefined;
+    }
+  }
+
+  setMeta(key: string, value: unknown): void {
+    this.sql.query<unknown, [string, string]>("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(key, JSON.stringify(value));
+  }
+
   /**
    * Records files a scan found again under another path (old id -> new id): the admin edit and the date added
    * follow the file. Call before `deleteTracks` of the old ids.

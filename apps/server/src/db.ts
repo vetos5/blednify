@@ -101,6 +101,9 @@ CREATE TABLE IF NOT EXISTS retired_fp (
 CREATE INDEX IF NOT EXISTS retired_fp_key ON retired_fp(size, duration_ms);
 CREATE INDEX IF NOT EXISTS tracks_fp ON tracks(size, duration_ms);
 
+-- small server state that must survive a restart (key -> JSON), e.g. the songs the last scan held back
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+
 -- playlist imports: the job document is JSON (items included), so the shape can grow without migrations
 CREATE TABLE IF NOT EXISTS imports (
   id         TEXT PRIMARY KEY,

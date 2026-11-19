@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { albumId, artistId, hash16, trackId } from "../src/ids";
 import type { Album, Artist, Page, Track } from "../src/library";
 import { sanitizeFileName } from "../src/app";
+import { Scanner } from "../src/scanner";
 import { png, testServer, wav, type TestServer } from "./fixtures";
 
 type AlbumDetail = Album & { tracks: Track[] };
@@ -121,6 +122,9 @@ describe("scan", () => {
       expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 26, held: 25, heldFolders: ["mnt"] });
       // The admin sees it without rescanning by hand.
       expect(await (await s.app.request("/api/admin/check", { method: "POST" })).json()).toMatchObject({ held: 25, heldFolders: ["mnt"] });
+      // A restarted server still reports them before its first scan.
+      const restarted = new Scanner(s.musicDir, s.ctx.lib, s.ctx.art);
+      expect([restarted.held, restarted.heldFolders]).toEqual([25, ["mnt"]]);
       const ids = Array.from({ length: 25 }, (_, i) => trackId(`mnt/${i}.wav`));
       expect(await (await s.app.request(`/api/tracks/gone?ids=${ids.join(",")}`)).json()).toEqual({ gone: [], moved: {} });
       // Too small a confirmation still holds; the right one removes them.
@@ -129,6 +133,7 @@ describe("scan", () => {
       const res = await s.app.request("/api/rescan?confirmRemove=25", { method: "POST" });
       expect(await res.json()).toEqual({ added: 0, removed: 25, total: 1 });
       expect(s.ctx.scanner.held).toBe(0);
+      expect(new Scanner(s.musicDir, s.ctx.lib, s.ctx.art).held).toBe(0);
     } finally {
       s.close();
     }

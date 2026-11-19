@@ -39,6 +39,8 @@ function foldersOf(rels: readonly string[]): string[] {
  * folder looks like, and every app would drop those songs from likes and playlists, so they stay until confirmed.
  */
 export const REMOVE_WITHOUT_CONFIRM = 20;
+/** meta key of the last scan's held songs ({ count, folders }). */
+const HELD_META = "scan.held";
 
 type FoundFile = { abs: string; rel: string; size: number; mtimeMs: number; birthMs: number };
 
@@ -210,6 +212,12 @@ export class Scanner {
     private readonly art: ArtworkCache,
   ) {
     mkdirSync(musicDir, { recursive: true });
+    // The last scan's held songs survive a restart, so the admin is warned before the startup scan finishes.
+    const held = lib.getMeta<{ count: number; folders: string[] }>(HELD_META);
+    if (held && Number.isInteger(held.count) && held.count > 0 && Array.isArray(held.folders)) {
+      this.lastHeld = held.count;
+      this.lastHeldFolders = held.folders.filter((f) => typeof f === "string");
+    }
   }
 
   get scanning(): boolean {
@@ -435,6 +443,7 @@ export class Scanner {
     }
     this.lastHeld = held;
     this.lastHeldFolders = heldFolders;
+    this.lib.setMeta(HELD_META, { count: held, folders: heldFolders });
     const ms = Math.round(performance.now() - started);
     console.log(
       `[scan] ${files.length} files, ${changed.length} parsed, +${added} -${gone.length}` +
