@@ -121,7 +121,7 @@ describe("scan", () => {
       rmSync(join(s.musicDir, "mnt"), { recursive: true });
       expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 26, held: 25, heldFolders: ["mnt"] });
       // The admin sees it without rescanning by hand.
-      expect(await (await s.app.request("/api/admin/check", { method: "POST" })).json()).toMatchObject({ held: 25, heldFolders: ["mnt"] });
+      expect(await (await s.app.request("/api/admin/check", { method: "POST" })).json()).toMatchObject({ held: 25, heldFolders: ["mnt"], heldWithCopy: 0 });
       // A restarted server still reports them before its first scan.
       const restarted = new Scanner(s.musicDir, s.ctx.lib, s.ctx.art);
       expect([restarted.held, restarted.heldFolders]).toEqual([25, ["mnt"]]);
@@ -238,7 +238,10 @@ describe("scan", () => {
     try {
       expect((await s.ctx.scanner.scan()).total).toBe(51);
       rmSync(join(s.musicDir, "mnt"), { recursive: true });
-      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 51, held: 25, heldFolders: ["mnt"] });
+      expect(await s.ctx.scanner.scan()).toEqual({ added: 0, removed: 0, total: 51, held: 25, heldFolders: ["mnt"], heldWithCopy: 25 });
+      // The admin is told that confirming moves these onto their copies rather than removing them, across a restart.
+      expect(await (await s.app.request("/api/admin/check", { method: "POST" })).json()).toMatchObject({ held: 25, heldWithCopy: 25 });
+      expect(new Scanner(s.musicDir, s.ctx.lib, s.ctx.art).heldWithCopy).toBe(25);
       const ids = Array.from({ length: 25 }, (_, i) => trackId(`mnt/${i}.wav`));
       expect(await (await s.app.request(`/api/tracks/gone?ids=${ids.join(",")}`)).json()).toEqual({ gone: [], moved: {} });
       // Confirmed: now the songs do follow their copies instead of being removed.

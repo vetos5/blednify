@@ -326,6 +326,7 @@ export function createApp(ctx: AppContext): Hono {
       // Songs the last scan kept although their files are missing (unmounted drive?); the app offers to review.
       held: scanner.held,
       heldFolders: scanner.heldFolders,
+      heldWithCopy: scanner.heldWithCopy,
     }),
   );
 

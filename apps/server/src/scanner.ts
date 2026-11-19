@@ -9,9 +9,18 @@ import { toTrack, type Library, type Track, type TrackRow } from "./library";
 /**
  * `held`: songs whose files are missing but were kept because removing them needs confirmation (see `scan`);
  * `heldFolders`: the folders they were in (most songs first, at most HELD_FOLDERS), so the admin can tell an
- * unmounted drive from a deliberate delete.
+ * unmounted drive from a deliberate delete. `heldWithCopy`: how many of the held songs have an identical copy
+ * elsewhere in the library; confirming moves those onto their copy (likes and playlists keep them), only the
+ * rest are removed. Omitted when 0.
  */
-export type ScanResult = { added: number; removed: number; total: number; held?: number; heldFolders?: string[] };
+export type ScanResult = {
+  added: number;
+  removed: number;
+  total: number;
+  held?: number;
+  heldFolders?: string[];
+  heldWithCopy?: number;
+};
 
 const HELD_FOLDERS = 5;
 
@@ -213,10 +222,13 @@ export class Scanner {
   ) {
     mkdirSync(musicDir, { recursive: true });
     // The last scan's held songs survive a restart, so the admin is warned before the startup scan finishes.
-    const held = lib.getMeta<{ count: number; folders: string[] }>(HELD_META);
+    const held = lib.getMeta<{ count: number; folders: string[]; withCopy?: number }>(HELD_META);
     if (held && Number.isInteger(held.count) && held.count > 0 && Array.isArray(held.folders)) {
       this.lastHeld = held.count;
       this.lastHeldFolders = held.folders.filter((f) => typeof f === "string");
+      // Saved by servers from before `withCopy` existed: unknown, so 0 (the warning then errs on the side of loss).
+      const w = held.withCopy;
+      this.lastHeldWithCopy = Number.isInteger(w) && w! >= 0 ? Math.min(w!, held.count) : 0;
     }
   }
 
@@ -232,8 +244,13 @@ export class Scanner {
   get heldFolders(): string[] {
     return this.lastHeldFolders;
   }
+  /** How many of those songs would follow an identical copy if the removal were confirmed. */
+  get heldWithCopy(): number {
+    return this.lastHeldWithCopy;
+  }
   private lastHeld = 0;
   private lastHeldFolders: string[] = [];
+  private lastHeldWithCopy = 0;
 
   /**
    * Runs an incremental scan. Calls during a running scan coalesce into one follow-up scan.
@@ -417,6 +434,7 @@ export class Scanner {
     let gone = missing.filter(([, k]) => !moves.has(k.id));
     let held = 0;
     let heldFolders: string[] = [];
+    let heldWithCopy = 0;
     if (
       (strictGone.length > REMOVE_WITHOUT_CONFIRM || (files.length === 0 && strictGone.length > 0)) &&
       confirmRemove < strictGone.length
@@ -425,6 +443,8 @@ export class Scanner {
         `[scan] ${strictGone.length} indexed songs are missing from ${this.musicDir}; keeping them (drive or folder ` +
           `not mounted?). Run POST /api/rescan?confirmRemove=${strictGone.length} to remove them.`,
       );
+      // Paired with a copy that was already indexed: confirming would move them there, not remove them.
+      heldWithCopy = strictGone.filter(([, k]) => moves.has(k.id)).length;
       moves = freshMoves;
       held = strictGone.length;
       heldFolders = foldersOf(strictGone.map(([rel]) => rel));
@@ -440,10 +460,12 @@ export class Scanner {
     if (held) {
       result.held = held;
       result.heldFolders = heldFolders;
+      if (heldWithCopy) result.heldWithCopy = heldWithCopy;
     }
     this.lastHeld = held;
     this.lastHeldFolders = heldFolders;
-    this.lib.setMeta(HELD_META, { count: held, folders: heldFolders });
+    this.lastHeldWithCopy = heldWithCopy;
+    this.lib.setMeta(HELD_META, { count: held, folders: heldFolders, withCopy: heldWithCopy });
     const ms = Math.round(performance.now() - started);
     console.log(
       `[scan] ${files.length} files, ${changed.length} parsed, +${added} -${gone.length}` +
