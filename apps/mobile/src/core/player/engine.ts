@@ -50,6 +50,7 @@ import { shuffled } from '../util';
 import { lockArtwork, prefetchLockArtwork } from './lock-art';
 import { fromRow, toRow, type QueueRow } from './queue-rows';
 import { playerStore, progressStore } from './store';
+import { planTail, planWindow, prevIndexIn, WINDOW_AHEAD, type Slot as WindowSlot } from './window';
 
 type Entry = { uid: number; track: AppTrack };
 /**
@@ -128,17 +129,7 @@ let lockActive = false;
 let windowDirty = false;
 /** The phone is offline: the native window chains only songs that play without the network (see `desiredTail`). */
 let offlineOnly = false;
-/** Upcoming tracks the native playlist is filled up to after the current one. */
-const WINDOW_AHEAD = 5;
-/**
- * Top up once fewer than this many upcoming tracks are left natively. With 5/3 the playlist is edited once every
- * three songs, and native still has two songs queued when it advances before JS has had a chance to run.
- */
-const WINDOW_MIN = 3;
-/** Played slots kept before the current one (native "previous"); more than TRIM_BEHIND are trimmed. */
-const KEEP_BEHIND = 1;
-/** Must stay above WINDOW_AHEAD (see `syncWindow`, stale status events). */
-const TRIM_BEHIND = 8;
+// Window sizes (WINDOW_AHEAD, WINDOW_MIN, KEEP_BEHIND, TRIM_BEHIND) and the edit planning live in window.ts.
 
 // --- Playback intent / bookkeeping -----------------------------------------------------------
 
@@ -219,8 +210,7 @@ function metadataOf(t: AppTrack): AudioMetadata {
 
 /** Index the in-app Previous goes to from `i` (when not restarting the song); repeat-all wraps. */
 function prevIndexOf(i: number): number | null {
-  if (i > 0) return i - 1;
-  return S().repeat === 'all' && entries.length > 1 ? entries.length - 1 : null;
+  return prevIndexIn(i, entries.length, S().repeat === 'all');
 }
 
 /** Index that follows `index` during playback; repeat-all wraps. */
@@ -422,33 +412,25 @@ function catchUpNative() {
   onNativeIndex(live);
 }
 
-type Slot = { uid: number; src: Source; key: string };
+type Slot = WindowSlot<Source>;
 
 /**
  * Upcoming playable entries that may follow the current one natively, up to WINDOW_AHEAD. With repeat-all the
  * window wraps to the start of the queue (each entry once), so looping the queue is gapless like any advance.
- * While the phone is offline (`offlineOnly`) streamed entries are left out.
+ * While the phone is offline (`offlineOnly`) streamed entries are left out, so native doesn't fail into each one.
  */
 function desiredTail(): Slot[] {
-  const out: Slot[] = [];
-  const n = entries.length;
-  const upcoming = S().repeat === 'all' ? n - 1 : n - 1 - index;
-  for (let k = 1; k <= upcoming && out.length < WINDOW_AHEAD; k++) {
-    const i = (index + k) % n;
-    // Offline: chain only songs that play without the network, so native doesn't fail into each streamed one.
-    if (offlineOnly && !resolveTrack(entries[i].track).localUri) continue;
-    const src = sourceOf(entries[i].track);
-    if (!src) break;
-    out.push({ uid: entries[i].uid, src, key: srcKey(src) });
-  }
-  return out;
+  return planTail(entries.length, index, S().repeat === 'all', WINDOW_AHEAD, (i) => {
+    const t = entries[i].track;
+    if (offlineOnly && !resolveTrack(t).localUri) return 'skip';
+    const src = sourceOf(t);
+    return src ? { uid: entries[i].uid, src, key: srcKey(src) } : null;
+  });
 }
 
 /**
- * Bring the native slots after the current one in line with the queue, with as few native calls as possible:
- * a slot whose source changed (download landed, new server URL or token) is replaced in place, slots after the
- * first entry that differs are removed and re-added, and the window is topped up to WINDOW_AHEAD once fewer than
- * WINDOW_MIN upcoming tracks are left. A no-op when native already matches, the usual case after an advance.
+ * Bring the native slots around the current one in line with the queue (see `planWindow`). In the background only
+ * edits that keep playback going are made; the rest wait for the foreground (`windowDirty`).
  */
 function syncWindow() {
   if (!nat || !natReady) return;
@@ -458,75 +440,32 @@ function syncWindow() {
   // After a JS-initiated skip native is already on `advancingTo.ci`, even though its event hasn't arrived yet.
   const curSlot = advancingTo?.ci ?? natCur;
   if (curSlot < 0 || curSlot >= natUids.length) return;
-  const want = desiredTail();
-  const haveUids = natUids.slice(curSlot + 1);
-  const haveKeys = natUris.slice(curSlot + 1);
-  let same = 0;
-  while (same < want.length && same < haveUids.length && want[same].uid === haveUids[same]) same++;
-  const replace: number[] = [];
-  for (let k = 0; k < same; k++) if (want[k].key !== haveKeys[k]) replace.push(k);
-  const drop = haveUids.length - same;
-  const low = same < Math.min(want.length, WINDOW_MIN);
-  // The slot behind the current one is what native "previous" (lock screen, headset, car) plays. After a shuffle,
-  // reorder or removal it can hold a song that no longer comes before this one; fix it so native previous lands
-  // where the in-app button would. Not mid-skip (native may still be on that slot).
   const pi = prevIndexOf(index);
   const prevEntry = pi === null ? undefined : entries[pi];
   const prevSrc = prevEntry ? sourceOf(prevEntry.track) : null;
-  const behindStale = !advancingTo && curSlot > 0 && natUids[curSlot - 1] !== (prevSrc ? prevEntry?.uid : undefined);
-  // Replaced in place (count unchanged) when there is a previous song; else every slot behind is removed (then
-  // native previous falls through to `remoteSkip`), which shifts indices like `trim` below and so needs the same
-  // guarantee: more slots trimmed than added. When that doesn't hold yet, `onNativeIndex` catches a native
-  // previous that lands on a stale slot.
-  const replaceBehind = behindStale && !!prevSrc;
-  // Fill up whenever the playlist is edited anyway, so edits stay rare.
-  const add = low || drop > 0 || replace.length > 0 || behindStale ? want.slice(same) : [];
-  const clearBehind = behindStale && !prevSrc && curSlot > add.length;
-  if (!replace.length && !drop && !add.length && !replaceBehind && !clearBehind) {
+  const plan = planWindow({
+    uids: natUids,
+    keys: natUris,
+    curSlot,
+    want: desiredTail(),
+    prev: prevEntry && prevSrc ? { uid: prevEntry.uid, src: prevSrc, key: srcKey(prevSrc) } : null,
+    advancing: !!advancingTo,
+    background: lockActive && AppState.currentState !== 'active',
+  });
+  if (plan.kind === 'none') {
     windowDirty = false;
     return;
   }
-  // In the background, edit only when native is about to run out of the right songs (see header).
-  if (!low && lockActive && AppState.currentState !== 'active') {
+  if (plan.kind === 'defer') {
     windowDirty = true;
     return;
   }
   windowDirty = false;
-  // Trimming shifts native indices. It is only done when it removes more slots than are added (TRIM_BEHIND >
-  // WINDOW_AHEAD), so no status event from before or during this edit has the final track count, and the
-  // `trackCount` check in `onStatus` drops all of them.
-  const trim = clearBehind ? curSlot : !advancingTo && curSlot > TRIM_BEHIND ? curSlot - KEEP_BEHIND : 0;
   // The JS mirror first, then native in one call (see `editNative`).
-  const edits: PlaylistEdit[] = [];
-  if (replaceBehind && prevEntry && prevSrc) {
-    // Insert before the stale slot, then remove it: the current slot's index is the same before and after.
-    const slot = curSlot - 1;
-    edits.push({ op: 'insert', index: slot, source: prevSrc }, { op: 'remove', index: slot + 1 });
-    natUids[slot] = prevEntry.uid;
-    natUris[slot] = srcKey(prevSrc);
-  }
-  for (const k of replace) {
-    const slot = curSlot + 1 + k;
-    edits.push({ op: 'insert', index: slot, source: want[k].src }, { op: 'remove', index: slot + 1 });
-    natUris[slot] = want[k].key;
-  }
-  for (let i = natUids.length - 1; i > curSlot + same; i--) {
-    edits.push({ op: 'remove', index: i });
-    natUids.pop();
-    natUris.pop();
-  }
-  for (const w of add) {
-    edits.push({ op: 'add', source: w.src });
-    natUids.push(w.uid);
-    natUris.push(w.key);
-  }
-  for (let k = 0; k < trim; k++) {
-    edits.push({ op: 'remove', index: 0 });
-    natUids.shift();
-    natUris.shift();
-    natCur--;
-  }
-  editNative(edits);
+  natUids = plan.uids;
+  natUris = plan.keys;
+  natCur -= plan.trimmed;
+  editNative(plan.edits);
 }
 
 /**
