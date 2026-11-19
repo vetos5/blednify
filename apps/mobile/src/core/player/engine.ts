@@ -12,7 +12,8 @@
  * is replaced in place), so native previous lands in the same place; a native previous onto a stale slot is
  * redirected in `onNativeIndex`, and so is a native advance into a slot from before the current song once repeat-all
  * is off (a wrap the background deferral left). While the phone is offline the window chains only songs that play
- * without the network (`offlineOnly`), so native doesn't fail into each streamed one.
+ * without the network (`offlineOnly`), so native doesn't fail into each streamed one, and Previous (in-app and the
+ * slot behind) steps back over streamed songs the same way. The redirect rules are pure in `window.ts`.
  *
  * IMPORTANT (Android): expo-audio's Media3 lock-screen session must not observe playlist edits (the
  * notification's MediaController then crashed the app with "Invalid PlayerInfo update"). So auto-advance never
@@ -50,7 +51,7 @@ import { shuffled } from '../util';
 import { lockArtwork, prefetchLockArtwork } from './lock-art';
 import { fromRow, toRow, type QueueRow } from './queue-rows';
 import { playerStore, progressStore } from './store';
-import { planTail, planWindow, prevIndexIn, WINDOW_AHEAD, type Slot as WindowSlot } from './window';
+import { planTail, planWindow, prevIndexIn, resolveNativeMove, WINDOW_AHEAD, type Slot as WindowSlot } from './window';
 
 type Entry = { uid: number; track: AppTrack };
 /**
@@ -208,9 +209,13 @@ function metadataOf(t: AppTrack): AudioMetadata {
   return meta;
 }
 
-/** Index the in-app Previous goes to from `i` (when not restarting the song); repeat-all wraps. */
+/**
+ * Index the in-app Previous goes to from `i` (when not restarting the song); repeat-all wraps. Offline
+ * (`offlineOnly`) it steps over streamed songs, like Next and the native window do.
+ */
 function prevIndexOf(i: number): number | null {
-  return prevIndexIn(i, entries.length, S().repeat === 'all');
+  const playable = offlineOnly ? (j: number) => !!resolveTrack(entries[j].track).localUri : undefined;
+  return prevIndexIn(i, entries.length, S().repeat === 'all', playable);
 }
 
 /** Index that follows `index` during playback; repeat-all wraps. */
@@ -499,7 +504,9 @@ function load(idx: number, play: boolean, positionMs = 0) {
   const edits: PlaylistEdit[] = [{ op: 'clear' }];
   natUids = [];
   natUris = [];
-  const prev = entries[idx - 1];
+  // Offline the slot behind holds the previous downloaded song (`prevIndexOf`), not a streamed one native can't play.
+  const pi = offlineOnly ? prevIndexOf(idx) : idx - 1;
+  const prev = pi !== null && pi >= 0 && pi < idx ? entries[pi] : undefined;
   const prevSrc = prev ? sourceOf(prev.track) : null;
   if (prev && prevSrc) {
     edits.push({ op: 'add', source: prevSrc });
@@ -584,27 +591,23 @@ function onNativeIndex(ci: number) {
     load(Math.min(Math.max(ni, 0), entries.length - 1), wantPlay);
     return;
   }
-  const prevIdx = prevIndexOf(index);
-  // One step back must land on the in-app previous song; a burst of presses (several slots at once) is only
-  // redirected when it didn't go back in the queue at all.
-  if (!forward && index >= 0 && idx !== prevIdx && (oneBack || idx >= index)) {
-    // Native went back to a slot that no longer holds the previous song (a shuffle or reorder `syncWindow` hasn't
-    // fixed yet, e.g. deferred in the background): do what the in-app Previous does instead of continuing from
-    // wherever that song is now.
-    const target = prevIdx ?? index;
+  // Native moved to a slot that doesn't follow the queue (a stale previous slot, or a repeat-all wrap left after
+  // repeat was turned off; see `resolveNativeMove`): do what the in-app buttons do instead.
+  const move = resolveNativeMove({
+    forward,
+    oneBack,
+    idx,
+    index,
+    prevIdx: prevIndexOf(index),
+    nextIdx: nextIndex(),
+    repeatAll: S().repeat === 'all',
+  });
+  if (move.kind !== 'accept') {
     kv.set(POSITION_KEY, 0);
-    load(target, wantPlay);
-    return;
-  }
-  if (forward && index >= 0 && idx < index && S().repeat !== 'all') {
-    // Native advanced into a slot from before the current song: a repeat-all wrap left after repeat was turned off,
-    // or a reorder not synced yet (both deferred in the background). Go where the queue goes instead.
-    const ni = nextIndex();
-    kv.set(POSITION_KEY, 0);
-    if (ni === null) {
+    if (move.kind === 'stop') {
       wantPlay = false;
       load(0, false);
-    } else load(ni, wantPlay);
+    } else load(move.index, wantPlay);
     return;
   }
   // `next()` already moved JS to this entry and reset its counters; a seek made since then targets this song.
@@ -1189,12 +1192,13 @@ function previous() {
   // Like `next`: a lock-screen / media-key skip JS hasn't heard about yet must count.
   catchUpNative();
   if (index < 0) return;
-  const { repeat } = S();
-  if (livePositionMs() > RESTART_THRESHOLD_MS || (index === 0 && repeat !== 'all')) {
+  // Offline, Previous steps over streamed songs (like Next), so it doesn't fail into one and bounce forward again.
+  const pi = livePositionMs() > RESTART_THRESHOLD_MS ? null : prevIndexOf(index);
+  if (pi === null) {
     seekTo(0);
     return;
   }
-  load(index > 0 ? index - 1 : entries.length - 1, isActive());
+  load(pi, isActive());
 }
 
 function playTracks(tracks: AppTrack[], startIndex?: number, opts?: { shuffle?: boolean }) {

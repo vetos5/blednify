@@ -1,7 +1,7 @@
 // The native window planner (src/core/player/window.ts) against a fake native playlist that applies the edits.
 import { describe, expect, test } from 'bun:test';
 
-import { planTail, planWindow, prevIndexIn, TRIM_BEHIND, WINDOW_AHEAD, WINDOW_MIN, type Slot, type WindowEdit } from '../src/core/player/window';
+import { planTail, planWindow, prevIndexIn, resolveNativeMove, TRIM_BEHIND, WINDOW_AHEAD, WINDOW_MIN, type Slot, type WindowEdit } from '../src/core/player/window';
 
 type Src = { uid: number; key: string };
 const slot = (uid: number, key = `u${uid}`): Slot<Src> => ({ uid, src: { uid, key }, key });
@@ -103,6 +103,51 @@ describe('prevIndexIn', () => {
     expect(prevIndexIn(0, 4, false)).toBeNull();
     expect(prevIndexIn(0, 4, true)).toBe(3);
     expect(prevIndexIn(0, 1, true)).toBeNull();
+  });
+
+  test('offline it steps back over streamed songs instead of bouncing into one', () => {
+    const downloaded = new Set([0, 3]);
+    const playable = (i: number) => downloaded.has(i);
+    expect(prevIndexIn(5, 6, false, playable)).toBe(3);
+    expect(prevIndexIn(3, 6, false, playable)).toBe(0);
+    // Nothing downloaded before the first one: restart the song (null), wrap only with repeat-all.
+    expect(prevIndexIn(0, 6, false, playable)).toBeNull();
+    expect(prevIndexIn(0, 6, true, playable)).toBe(3);
+    expect(prevIndexIn(3, 6, false, () => false)).toBeNull();
+    expect(prevIndexIn(3, 6, true, () => false)).toBeNull();
+  });
+});
+
+describe('resolveNativeMove', () => {
+  const base = { forward: false, oneBack: false, idx: 0, index: 5, prevIdx: 4, nextIdx: 6, repeatAll: false };
+
+  test('a native move that follows the queue is accepted', () => {
+    expect(resolveNativeMove({ ...base, forward: true, idx: 6 })).toEqual({ kind: 'accept' });
+    expect(resolveNativeMove({ ...base, oneBack: true, idx: 4 })).toEqual({ kind: 'accept' });
+    // Repeat-all: advancing into the queue's start is the wrap itself.
+    expect(resolveNativeMove({ ...base, forward: true, idx: 0, index: 9, nextIdx: 0, repeatAll: true })).toEqual({ kind: 'accept' });
+  });
+
+  test('lock-screen previous onto a stale slot (a song dragged above the current one) plays the in-app previous', () => {
+    // The slot behind still holds entry 7 (it was dragged below), while the in-app previous is 4.
+    expect(resolveNativeMove({ ...base, oneBack: true, idx: 7 })).toEqual({ kind: 'load', index: 4 });
+    // On the first song (no previous): restart it.
+    expect(resolveNativeMove({ ...base, oneBack: true, idx: 3, index: 0, prevIdx: null })).toEqual({ kind: 'load', index: 0 });
+  });
+
+  test('a burst of previous presses is kept when it went back in the queue', () => {
+    expect(resolveNativeMove({ ...base, idx: 2 })).toEqual({ kind: 'accept' });
+    // ...but not when the slots it landed on are now after the current song.
+    expect(resolveNativeMove({ ...base, idx: 8 })).toEqual({ kind: 'load', index: 4 });
+  });
+
+  test('a wrap left in the window after repeat-all was turned off goes where the queue goes, or stops', () => {
+    expect(resolveNativeMove({ ...base, forward: true, idx: 0, index: 9, nextIdx: null })).toEqual({ kind: 'stop' });
+    expect(resolveNativeMove({ ...base, forward: true, idx: 1, index: 5, nextIdx: 6 })).toEqual({ kind: 'load', index: 6 });
+  });
+
+  test('nothing is redirected before a song is current', () => {
+    expect(resolveNativeMove({ ...base, oneBack: true, idx: 3, index: -1 })).toEqual({ kind: 'accept' });
   });
 });
 

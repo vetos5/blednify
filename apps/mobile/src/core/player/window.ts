@@ -22,10 +22,45 @@ export type Slot<S> = { uid: number; src: S; key: string };
 /** The subset of the native `PlaylistEdit` ops a window sync uses. */
 export type WindowEdit<S> = { op: 'insert'; index: number; source: S } | { op: 'remove'; index: number } | { op: 'add'; source: S };
 
-/** Index the in-app Previous goes to from `i` (when not restarting the song); repeat-all wraps. */
-export function prevIndexIn(i: number, n: number, repeatAll: boolean): number | null {
-  if (i > 0) return i - 1;
-  return repeatAll && n > 1 ? n - 1 : null;
+/**
+ * Index the in-app Previous goes to from `i` (when not restarting the song); repeat-all wraps. With `playable`
+ * (offline: only downloaded songs) entries it rejects are stepped over, like `planTail` leaves them out ahead.
+ */
+export function prevIndexIn(i: number, n: number, repeatAll: boolean, playable?: (i: number) => boolean): number | null {
+  const back = repeatAll ? n - 1 : i;
+  for (let k = 1; k <= back; k++) {
+    const j = (i - k + n) % n;
+    if (!playable || playable(j)) return j;
+  }
+  return null;
+}
+
+/** What to do when native reports it moved to the slot of queue entry `idx` (see `onNativeIndex` in engine.ts). */
+export type NativeMove = { kind: 'accept' } | { kind: 'load'; index: number } | { kind: 'stop' };
+
+/**
+ * Redirects a native move that doesn't follow the queue. `forward`: native moved to a later slot; `oneBack`: exactly
+ * one slot back. `index`: the JS current entry; `prevIdx`/`nextIdx`: where the in-app Previous/Next would go.
+ * - One step back must land on the in-app previous song (the slot behind can be stale after a shuffle or reorder the
+ *   background deferred). A burst of presses (several slots at once) is only redirected when it didn't go back in
+ *   the queue at all.
+ * - A forward move into an entry before the current one without repeat-all (a wrap left from when repeat-all was on,
+ *   or an unsynced reorder) goes where the queue goes instead, or stops at the end.
+ */
+export function resolveNativeMove(m: {
+  forward: boolean;
+  oneBack: boolean;
+  idx: number;
+  index: number;
+  prevIdx: number | null;
+  nextIdx: number | null;
+  repeatAll: boolean;
+}): NativeMove {
+  const { forward, oneBack, idx, index, prevIdx, nextIdx, repeatAll } = m;
+  if (index < 0) return { kind: 'accept' };
+  if (!forward && idx !== prevIdx && (oneBack || idx >= index)) return { kind: 'load', index: prevIdx ?? index };
+  if (forward && idx < index && !repeatAll) return nextIdx === null ? { kind: 'stop' } : { kind: 'load', index: nextIdx };
+  return { kind: 'accept' };
 }
 
 /**
