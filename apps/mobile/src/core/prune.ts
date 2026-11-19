@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { ApiError, apiGet, queryString, type ApiTrack } from './api';
 import { getDb, writeTx } from './db';
 import { ripenGone } from './gone-grace';
-import { dropQueuedDownloads, renameQueuedDownloads } from './downloads';
+import { dropQueuedDownloads, queuedDownloadKeys, renameQueuedDownloads } from './downloads';
 import { removeTrackReferences, rewriteTrackReferences } from './library';
 import { libIndex, loadLibIndexAgain } from './lib-index';
 import { deleteQuietly } from './paths';
@@ -24,7 +24,7 @@ let lastRun = 0;
 /** Set once the server answers 404 (built before /api/tracks/gone); retried after a server change. */
 let unsupportedBase: string | null = null;
 
-/** Remote track keys the library, downloads or queue still reference. */
+/** Remote track keys the library, downloads, download queue or play queue still reference. */
 async function referencedRemoteKeys(): Promise<string[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<{ key: string }>(
@@ -35,6 +35,8 @@ async function referencedRemoteKeys(): Promise<string[]> {
   );
   const keys = new Set(rows.map((r) => r.key));
   for (const t of playerStore.getState().queue) if (t.origin === 'remote') keys.add(t.key);
+  // Downloads waiting or failed for a song nothing else references (an album download): a move is followed there too.
+  for (const k of queuedDownloadKeys()) if (k.startsWith('r:')) keys.add(k);
   return [...keys];
 }
 
