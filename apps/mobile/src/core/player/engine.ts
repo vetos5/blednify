@@ -15,7 +15,8 @@
  * without the network (`offlineOnly`), so native doesn't fail into each streamed one, and Previous (in-app and the
  * slot behind) steps back over streamed songs the same way; every forward move (Next, a song ending, an error skip,
  * a native redirect) uses the same `nextIndexIn`, so none lands on a streamed song. The redirect rules and both index
- * steps are pure in `window.ts`.
+ * steps are pure in `window.ts`; when the phone counts as offline, and when it is back, is decided in `reach.ts`
+ * (a LAN server is asked directly with GET /api/health, since the phone's network state can't speak for it).
  *
  * IMPORTANT (Android): expo-audio's Media3 lock-screen session must not observe playlist edits (the
  * notification's MediaController then crashed the app with "Invalid PlayerInfo update"). So auto-advance never
@@ -53,6 +54,7 @@ import { shuffled } from '../util';
 import { lockArtwork, prefetchLockArtwork } from './lock-art';
 import { fromRow, toRow, type QueueRow } from './queue-rows';
 import { playerStore, progressStore } from './store';
+import { backOnlineVerdict, LAN_REPROBE_MS, offlineVerdict, PROBE_TIMEOUT_MS, type NetState } from './reach';
 import { nextIndexIn, planTail, planWindow, prevIndexIn, resolveNativeMove, WINDOW_AHEAD, type Slot as WindowSlot } from './window';
 
 type Entry = { uid: number; track: AppTrack };
@@ -821,14 +823,15 @@ function nextOfflineIndex(): number | null {
 }
 
 /**
- * The phone itself is offline (airplane mode, no data in the subway): waiting on a streamed song can take as long
- * as the outage, so move on to the next song that plays offline. Retrying in place stays for a server or
- * connection that may come back any moment.
+ * The phone itself is offline (airplane mode, no data in the subway), or a home-network server can't be reached
+ * from mobile data: waiting on a streamed song can take as long as that lasts, so move on to the next song that
+ * plays offline. Retrying in place stays for a server or connection that may come back any moment (`reach.ts`).
  */
 function skipToOfflineSongIfOffline(uid: number) {
   void getNetworkStateAsync()
-    .then((net) => {
-      if (!phoneOffline(net)) return;
+    .then(async (net) => {
+      const verdict = offlineVerdict(net, isLocalHost(getServerBase()));
+      if (verdict === 'online' || (verdict === 'probe' && (await serverAnswers()))) return;
       if (!netRetry || netRetry.uid !== uid || entries[index]?.uid !== uid || !wantPlay) return;
       const ni = nextOfflineIndex();
       if (ni === null) return;
@@ -840,39 +843,50 @@ function skipToOfflineSongIfOffline(uid: number) {
     .catch(() => undefined);
 }
 
-/**
- * No connection at all, or no internet while the server is on the internet. "No internet" on a home Wi-Fi with a
- * LAN or Tailscale server is not offline: that server may still answer, so the song is retried in place.
- */
-function phoneOffline(net: { isConnected?: boolean | null; isInternetReachable?: boolean | null }): boolean {
-  if (net.isConnected === false) return true;
-  return net.isInternetReachable === false && !isLocalHost(getServerBase());
-}
-
-/**
- * Back online for sure: connected, and the internet answers (or the server is on the LAN). Right after Wi-Fi
- * associates reachability is often still unknown (null), or a captive portal holds it; leaving offline playback
- * then would fill the window with streamed songs that fail again.
- */
-function phoneOnline(net: { isConnected?: boolean | null; isInternetReachable?: boolean | null }): boolean {
-  if (net.isConnected !== true) return false;
-  return net.isInternetReachable === true || isLocalHost(getServerBase());
+/** The server answers a quick unauthenticated health check (GET /api/health) within PROBE_TIMEOUT_MS. */
+async function serverAnswers(): Promise<boolean> {
+  const base = getServerBase();
+  if (!base) return false;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${base}/api/health`, { signal: ctrl.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 let offlineSub: { remove(): void } | null = null;
+let lanProbe: ReturnType<typeof setInterval> | null = null;
+
+/** Playing only downloads: leave once the server is back for sure (`backOnlineVerdict`). */
+function checkBackOnline(net: NetState) {
+  const verdict = backOnlineVerdict(net, isLocalHost(getServerBase()));
+  if (verdict === 'online') setOfflineOnly(false);
+  else if (verdict === 'probe')
+    void serverAnswers().then((ok) => {
+      if (ok && offlineOnly) setOfflineOnly(false);
+    });
+}
 
 /** Enter or leave offline playback; back online, the window is filled with streamed songs again. */
 function setOfflineOnly(on: boolean) {
   if (offlineOnly === on) return;
   offlineOnly = on;
   if (on) {
-    offlineSub ??= addNetworkStateListener((net) => {
-      if (phoneOnline(net)) setOfflineOnly(false);
-    });
+    offlineSub ??= addNetworkStateListener(checkBackOnline);
+    // A LAN server can come back without the phone's network changing (a VPN reconnects, the server restarts).
+    if (isLocalHost(getServerBase()))
+      lanProbe ??= setInterval(() => void getNetworkStateAsync().then(checkBackOnline).catch(() => undefined), LAN_REPROBE_MS);
     return;
   }
   offlineSub?.remove();
   offlineSub = null;
+  if (lanProbe) clearInterval(lanProbe);
+  lanProbe = null;
   syncWindow();
 }
 
