@@ -33,11 +33,11 @@ export function ToastHost() {
         {toast ? (
           <Animated.View
             key={toast.id}
-            // Starts nearly opaque and close to its place: a full fade from 0 showed the page header through the card
-            // for its first frames.
+            // Opaque from the first frame, sliding the last 10 px into place: a fade showed the page header through
+            // the card while it came in (still faintly at 0.85).
             entering={(wide ? FadeInDown : FadeInUp)
               .duration(160)
-              .withInitialValues({ opacity: 0.85, transform: [{ translateY: wide ? 10 : -10 }] })}
+              .withInitialValues({ opacity: 1, transform: [{ translateY: wide ? 10 : -10 }] })}
             exiting={(wide ? FadeOutDown : FadeOutUp).duration(180)}
             style={styles.toast}
             // Native screen readers get the message from showToast(); the live region covers the web app.
