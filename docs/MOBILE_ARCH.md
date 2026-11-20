@@ -117,6 +117,19 @@ export type DownloadStatus = 'none' | 'queued' | 'downloading' | 'done' | 'error
 - `testServer(url: string): Promise<{ ok: boolean; trackCount?: number; error?: string }>`
 - Default `serverUrl` = `process.env.EXPO_PUBLIC_API_URL ?? ''`. Empty url ⇒ app works fully offline with local library; remote hooks return empty, `online: false`.
 
+### Tokens and privacy (checked 2026-11-20)
+- The listen and admin tokens live in MMKV (`settings.ts`), in the app's private storage; Android backup is off
+  (`allowBackup: false`), so they don't leave the phone in a cloud or adb backup. Not in the Keystore
+  (SecureStore): a rooted phone or a debug build can read them; accepted for a personal app, revisit if the
+  server ever holds more than music.
+- They travel only as `Authorization: Bearer` headers (`authHeadersFor`), never in a URL, so they don't show up
+  in server logs, ExoPlayer errors or the lock-screen session. Nothing logs headers or settings.
+- Web: MMKV is localStorage, so a script injected into the page could read the listen token; the page loads only
+  its own bundles (no third-party script). Media elements use the HttpOnly `blednify_listen` cookie
+  (`SameSite=Strict`, `Path=/api`). The service worker never touches `/api/`, so no authenticated response or
+  stream is cached.
+- The server slows token guessing (`apps/server/src/auth-limit.ts`, see API.md).
+
 ### Utilities
 - `formatDuration(ms: number): string` (`3:07`, `1:02:03`), `formatBytes(n: number): string`
 
