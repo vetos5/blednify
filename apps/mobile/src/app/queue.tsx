@@ -15,7 +15,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { player, usePlayer, type AppTrack } from '@/core';
+import { player, upcoming, usePlayer, type AppTrack } from '@/core';
 import { Backdrop } from '@/ui/components/Backdrop';
 import { Artwork } from '@/ui/components/Artwork';
 import { EmptyState } from '@/ui/components/EmptyState';
@@ -70,10 +70,11 @@ function QueueScreenContent() {
   const queue = usePlayer((s) => s.queue);
   const index = usePlayer((s) => s.index);
   const isPlaying = usePlayer((s) => s.isPlaying);
+  const repeatAll = usePlayer((s) => s.repeat === 'all');
   const current = queue[index] ?? null;
 
-  const upNext: Item[] = [];
-  for (let i = index + 1; i < queue.length; i++) upNext.push({ track: queue[i], abs: i, rel: i - index - 1 });
+  const { ahead, wrapped } = upcoming(index, queue.length, repeatAll);
+  const upNext: Item[] = ahead.map((i) => ({ track: queue[i], abs: i, rel: i - index - 1 }));
 
   const from = useSharedValue(-1);
   const dy = useSharedValue(0);
@@ -93,7 +94,6 @@ function QueueScreenContent() {
   );
   const listRef = useRef<FlatList<Item>>(null);
   const metrics = useRef({ offset: 0, content: 0, viewport: 0 });
-
 
   useEffect(() => {
     count.set(upNext.length);
@@ -209,8 +209,15 @@ function QueueScreenContent() {
             </View>
           }
           ListEmptyComponent={
-            <EmptyState icon="list-outline" title="Nothing up next" message="Use “Play next” or “Add to queue” from any song’s menu." />
+            wrapped.length > 0 ? undefined : (
+              <EmptyState
+                icon={repeatAll ? 'repeat' : 'list-outline'}
+                title={repeatAll ? 'This song plays again' : 'Nothing up next'}
+                message={repeatAll ? 'Repeat all is on. Add songs with “Play next” or “Add to queue”.' : 'Use “Play next” or “Add to queue” from any song’s menu.'}
+              />
+            )
           }
+          ListFooterComponent={wrapped.length > 0 ? <FromTheTop indices={wrapped} queue={queue} rowH={rowHeight} /> : undefined}
           renderItem={({ item }) => <QueueRow item={item} drag={drag} rowH={rowHeight} onDragStart={startDrag} onDragEnd={endDrag} />}
         />
         {ghost ? <Ghost track={ghost.track} drag={drag} rowH={rowHeight} /> : null}
@@ -368,6 +375,46 @@ const QueueRow = memo(function QueueRow({
   );
 });
 
+/** Rows shown at most under "Then from the top"; a long queue says how many more. */
+const WRAPPED_ROWS = 30;
+
+/** Repeat all: what plays after the last song (the queue's head). Tap to play; reorder happens up top. */
+function FromTheTop({ indices, queue, rowH }: { indices: number[]; queue: readonly AppTrack[]; rowH: number }) {
+  const styles = useStyles();
+  const colors = useColors();
+  const shown = indices.slice(0, WRAPPED_ROWS);
+  const more = indices.length - shown.length;
+  return (
+    <View>
+      <View style={styles.upNextHeader}>
+        <Text variant="micro">THEN FROM THE TOP · {indices.length}</Text>
+        <Text variant="caption" style={styles.hint}>
+          Repeat all is on
+        </Text>
+      </View>
+      {shown.map((i) => (
+        <Pressable
+          key={`top:${i}:${queue[i].key}`}
+          style={[styles.rowPress, styles.wrappedRow, { height: rowH }]}
+          accessibilityRole="button"
+          accessibilityLabel={spokenLabel(`Play ${queue[i].title} by ${queue[i].artist}`)}
+          android_ripple={{ color: colors.ripple }}
+          onPress={() => {
+            haptics.tap();
+            player.jumpTo(i);
+          }}>
+          <RowBody track={queue[i]} />
+        </Pressable>
+      ))}
+      {more > 0 ? (
+        <Text variant="caption" style={styles.more}>
+          and {more} more
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function RowBody({ track }: { track: AppTrack }) {
   const styles = useStyles();
   return (
@@ -422,6 +469,9 @@ const useStyles = makeStyles((colors) => ({
   rowContent: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg },
   rowPress: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingLeft: space.lg },
   handle: { width: 56, alignItems: 'center', justifyContent: 'center' },
+  // Same inset on the right as the draggable rows' handle column, so titles line up.
+  wrappedRow: { flex: 0, paddingRight: 56 },
+  more: { paddingHorizontal: space.lg, paddingTop: space.sm },
   ghost: {
     position: 'absolute',
     left: 0,

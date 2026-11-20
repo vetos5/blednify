@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { player, usePlayer } from '@/core';
+import { nextUp, player, usePlayer } from '@/core';
 import { Artwork } from '@/ui/components/Artwork';
 import { Icon } from '@/ui/components/Icon';
 import { Text } from '@/ui/components/Text';
@@ -16,9 +16,10 @@ export function UpNextCard() {
   const colors = useColors();
   const queue = usePlayer((s) => s.queue);
   const index = usePlayer((s) => s.index);
+  const repeatAll = usePlayer((s) => s.repeat === 'all');
 
-  // Next 3-4 tracks in queue
-  const upNext = queue.slice(index + 1, index + 5);
+  // The next four in play order; with repeat all the head of the queue follows the last song.
+  const upNext = nextUp(index, queue.length, repeatAll, 4).map((i) => ({ track: queue[i], queueIndex: i }));
 
   const openQueue = () => {
     haptics.tap();
@@ -39,7 +40,7 @@ export function UpNextCard() {
           </Text>
           {upNext.length > 0 ? (
             <Text variant="caption" color={colors.textSecondary}>
-              · {queue.length - 1 - index} in queue
+              · {repeatAll ? `${queue.length - 1} on repeat` : `${queue.length - 1 - index} in queue`}
             </Text>
           ) : null}
         </View>
@@ -58,15 +59,14 @@ export function UpNextCard() {
 
       {upNext.length > 0 ? (
         <View style={styles.list}>
-          {upNext.map((track, i) => {
-            const queueIndex = index + 1 + i;
+          {upNext.map(({ track, queueIndex }) => {
             return (
               <Pressable
                 key={`${queueIndex}:${track.key}`}
                 onPress={() => handleJump(queueIndex)}
                 accessibilityRole="button"
                 accessibilityLabel={spokenLabel(`Play ${track.title} by ${track.artist}`)}
-                android_ripple={{ color: 'rgba(255,255,255,0.06)' }}
+                android_ripple={{ color: colors.ripple }}
                 style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
                 <Artwork
                   uri={track.artworkUri}
