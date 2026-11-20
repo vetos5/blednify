@@ -75,21 +75,23 @@ function useTwinkle(animate: boolean, delay: number, duration: number) {
   const o = useSharedValue(animate ? TWINKLE_REST : 1);
   useEffect(() => {
     if (!animate) {
-      o.value = 1;
+      o.set(1);
       return;
     }
     const ease = Easing.inOut(Easing.quad);
-    o.value = TWINKLE_REST;
-    o.value = withDelay(
-      delay,
-      withRepeat(
-        withSequence(
-          withTiming(1, { duration, easing: ease }),
-          withTiming(TWINKLE_REST, { duration, easing: ease }),
-          // Hold still for the rest of the cycle (no frames are drawn while nothing changes).
-          withDelay(CYCLE_MS - 2 * duration, withTiming(TWINKLE_REST, { duration: 0 })),
+    o.set(TWINKLE_REST);
+    o.set(
+      withDelay(
+        delay,
+        withRepeat(
+          withSequence(
+            withTiming(1, { duration, easing: ease }),
+            withTiming(TWINKLE_REST, { duration, easing: ease }),
+            // Hold still for the rest of the cycle (no frames are drawn while nothing changes).
+            withDelay(CYCLE_MS - 2 * duration, withTiming(TWINKLE_REST, { duration: 0 })),
+          ),
+          -1,
         ),
-        -1,
       ),
     );
     return () => cancelAnimation(o);
@@ -99,7 +101,7 @@ function useTwinkle(animate: boolean, delay: number, duration: number) {
 
 function Twinkle({ spot, color, animate }: { spot: Spot; color: string; animate: boolean }) {
   const o = useTwinkle(animate, spot.delay, spot.duration);
-  const style = useAnimatedStyle(() => ({ opacity: o.value, transform: [{ scale: 0.7 + o.value * 0.5 }] }));
+  const style = useAnimatedStyle(() => ({ opacity: o.get(), transform: [{ scale: 0.7 + o.get() * 0.5 }] }));
   const { left, top, size } = spot;
   return (
     <Animated.View
@@ -115,7 +117,7 @@ function Twinkle({ spot, color, animate }: { spot: Spot; color: string; animate:
 /** A star with a soft halo (two translucent rings around a bright core). */
 function GlowStar({ spot, color, animate }: { spot: Spot; color: string; animate: boolean }) {
   const o = useTwinkle(animate, spot.delay, spot.duration + 300);
-  const style = useAnimatedStyle(() => ({ opacity: 0.45 + o.value * 0.55 }));
+  const style = useAnimatedStyle(() => ({ opacity: 0.45 + o.get() * 0.55 }));
   const halo = spot.size * 5;
   return (
     <Animated.View
@@ -149,8 +151,8 @@ function GlowStar({ spot, color, animate }: { spot: Spot; color: string; animate
 function Sparkle({ spot, color, animate }: { spot: Spot; color: string; animate: boolean }) {
   const o = useTwinkle(animate, spot.delay, spot.duration);
   const style = useAnimatedStyle(() => ({
-    opacity: 0.3 + o.value * 0.7,
-    transform: [{ scale: 0.6 + o.value * 0.5 }, { rotate: `${o.value * 20}deg` }],
+    opacity: 0.3 + o.get() * 0.7,
+    transform: [{ scale: 0.6 + o.get() * 0.5 }, { rotate: `${o.get() * 20}deg` }],
   }));
   const s = spot.size;
   const bar = Math.max(1.5, s / 7);
@@ -181,15 +183,17 @@ function ShootingStar({ meteor, color }: { meteor: Meteor; color: string }) {
   const { width, height } = useWindowDimensions();
   const t = useSharedValue(0);
   useEffect(() => {
-    t.value = 0;
-    t.value = withDelay(
-      meteor.delay,
-      withRepeat(
-        withSequence(
-          withTiming(1, { duration: METEOR_FLIGHT_MS, easing: Easing.in(Easing.quad) }),
-          withDelay(meteor.every - METEOR_FLIGHT_MS, withTiming(0, { duration: 0 })),
+    t.set(0);
+    t.set(
+      withDelay(
+        meteor.delay,
+        withRepeat(
+          withSequence(
+            withTiming(1, { duration: METEOR_FLIGHT_MS, easing: Easing.in(Easing.quad) }),
+            withDelay(meteor.every - METEOR_FLIGHT_MS, withTiming(0, { duration: 0 })),
+          ),
+          -1,
         ),
-        -1,
       ),
     );
     return () => cancelAnimation(t);
@@ -200,8 +204,8 @@ function ShootingStar({ meteor, color }: { meteor: Meteor; color: string }) {
   const dy = Math.sin(rad) * travel;
   const style = useAnimatedStyle(() => ({
     // Fade in quickly, out over the last third of the flight; hidden between flights.
-    opacity: t.value === 0 ? 0 : Math.min(1, t.value * 6) * Math.min(1, (1 - t.value) * 3),
-    transform: [{ translateX: t.value * dx }, { translateY: t.value * dy }, { rotate: `${METEOR_ANGLE}deg` }],
+    opacity: t.get() === 0 ? 0 : Math.min(1, t.get() * 6) * Math.min(1, (1 - t.get()) * 3),
+    transform: [{ translateX: t.get() * dx }, { translateY: t.get() * dy }, { rotate: `${METEOR_ANGLE}deg` }],
   }));
   return (
     <Animated.View

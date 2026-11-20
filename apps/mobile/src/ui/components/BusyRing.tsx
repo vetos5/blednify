@@ -23,11 +23,11 @@ export function BusyRing({ size, stroke = 3, color }: { size: number; stroke?: n
   const turn = useSharedValue(0);
   useEffect(() => {
     if (reduced) return;
-    turn.value = 0;
-    turn.value = withRepeat(withTiming(1, { duration: 900, easing: Easing.linear }), -1, false);
+    turn.set(0);
+    turn.set(withRepeat(withTiming(1, { duration: 900, easing: Easing.linear }), -1, false));
     return () => cancelAnimation(turn);
   }, [reduced, turn]);
-  const spin = useAnimatedStyle(() => ({ transform: [{ rotate: `${turn.value * 360}deg` }] }));
+  const spin = useAnimatedStyle(() => ({ transform: [{ rotate: `${turn.get() * 360}deg` }] }));
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   return (
