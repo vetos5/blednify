@@ -8,7 +8,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { onProgress, player, usePlayButton, usePlayer } from '@/core';
 
 import { ChromeDock, ChromeSurface, useChromeStyle } from '../chrome';
-import { spokenLabel } from '../a11y';
+import { nowPlayingLabel } from '../now-playing-label';
 import { haptics } from '../haptics';
 import { useIsWide } from '../layout';
 import { nav } from '../nav';
@@ -87,7 +87,7 @@ export function MiniPlayer() {
         <View style={floating ? styles.pill : styles.card}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={spokenLabel(`Now playing: ${current.title} by ${current.artist}. Open player`)}
+            accessibilityLabel={nowPlayingLabel(current.title, current.artist, Platform.OS === 'web')}
             onPress={nav.player}
             style={styles.main}>
             <Animated.View style={[styles.content, contentStyle]}>

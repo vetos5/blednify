@@ -293,6 +293,8 @@ function MiniTransport() {
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityState={{ busy: mode === 'busy' }}
+        // react-native-web drops accessibilityState.busy; aria-busy reaches the PWA's screen reader too.
+        aria-busy={mode === 'busy' || undefined}
         activeScale={0.9}
         onPress={() => {
           haptics.press();

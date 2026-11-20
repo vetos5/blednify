@@ -488,6 +488,8 @@ function Transport() {
         // While loading or retrying the tap pauses (cancels the pending start), so the label says so.
         accessibilityLabel={label}
         accessibilityState={{ busy: mode === 'busy' }}
+        // react-native-web drops accessibilityState.busy; aria-busy reaches the PWA's screen reader too.
+        aria-busy={mode === 'busy' || undefined}
         activeScale={0.9}
         onPress={() => {
           haptics.press();

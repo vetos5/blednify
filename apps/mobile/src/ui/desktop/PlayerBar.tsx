@@ -152,6 +152,8 @@ function Transport({ disabled }: { disabled: boolean }) {
           accessibilityRole="button"
           accessibilityLabel={label}
           accessibilityState={{ busy: mode === 'busy', disabled: !!disabled }}
+          // react-native-web drops accessibilityState.busy.
+          aria-busy={mode === 'busy' || undefined}
           disabled={disabled}
           onPress={player.togglePlay}
           style={({ hovered, pressed }) => [

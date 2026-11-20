@@ -56,6 +56,8 @@ export function IconButton({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: !!disabled, busy: !!busy }}
+      // react-native-web drops accessibilityState.busy; aria-busy reaches the PWA's screen reader too.
+      aria-busy={busy || undefined}
       hitSlop={diameter < 44 ? (44 - diameter) / 2 : 0}
       disabled={disabled}
       activeScale={0.88}
