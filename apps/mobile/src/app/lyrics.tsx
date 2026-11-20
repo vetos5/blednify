@@ -1,5 +1,4 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { StatusBar } from 'expo-status-bar';
 import { memo, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -27,6 +26,7 @@ import {
 } from '@/core';
 import { ArtworkBackdrop } from '@/ui/components/Artwork';
 import { EmptyState } from '@/ui/components/EmptyState';
+import { ImmersiveStatusBar } from '@/ui/components/ImmersiveStatusBar';
 import { Icon } from '@/ui/components/Icon';
 import { IconButton } from '@/ui/components/IconButton';
 import { PressableScale } from '@/ui/components/PressableScale';
@@ -48,7 +48,7 @@ export default function LyricsScreen() {
   if (useWideRedirect('lyrics')) return null;
   return (
     <ForceDark>
-      <StatusBar style="light" />
+      <ImmersiveStatusBar />
       <LyricsScreenContent />
     </ForceDark>
   );

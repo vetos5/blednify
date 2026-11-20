@@ -1,5 +1,4 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState, type ComponentRef, type RefObject } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import {
@@ -33,6 +32,7 @@ import {
 import { Artwork, ArtworkBackdrop } from '@/ui/components/Artwork';
 import { DownloadButton } from '@/ui/components/DownloadButton';
 import { EmptyState } from '@/ui/components/EmptyState';
+import { ImmersiveStatusBar } from '@/ui/components/ImmersiveStatusBar';
 import { Icon } from '@/ui/components/Icon';
 import { IconButton } from '@/ui/components/IconButton';
 import { LikeButton } from '@/ui/components/LikeButton';
@@ -133,7 +133,7 @@ export default function PlayerScreen() {
   const wide = useIsWide();
   return (
     <ForceDark>
-      <StatusBar style="light" />
+      <ImmersiveStatusBar />
       {wide ? <DesktopNowPlaying /> : <PlayerScreenContent />}
     </ForceDark>
   );
