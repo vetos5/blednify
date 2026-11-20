@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, StyleSheet, View } from 'react-native';
+import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -27,6 +28,7 @@ import { IconButton } from '@/ui/components/IconButton';
 import { PressableScale } from '@/ui/components/PressableScale';
 import { PrimaryButton } from '@/ui/components/PrimaryButton';
 import { Rail, useRailCardWidth } from '@/ui/components/Rail';
+import { StatusBarScrim } from '@/ui/components/StatusBarScrim';
 import { Text } from '@/ui/components/Text';
 import { openTrackActions } from '@/ui/components/TrackActions';
 import { contextMenu } from '@/ui/desktop/web';
@@ -70,6 +72,12 @@ export default function HomeScreen() {
   const chromeInset = useChromeInset('tabs');
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const scrollY = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      scrollY.set(e.contentOffset.y);
+    },
+  });
   const wide = useIsWide();
   const gutter = useGutter();
   const cardW = useRailCardWidth();
@@ -104,7 +112,9 @@ export default function HomeScreen() {
   return (
     <View style={styles.root}>
       <Backdrop />
-      <ScrollView
+      <Animated.ScrollView
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         style={styles.fill}
         contentContainerStyle={{ paddingTop: insets.top + (wide ? space.xxl : space.md), paddingBottom: space.xxl + chromeInset }}
         showsVerticalScrollIndicator={false}
@@ -235,7 +245,8 @@ export default function HomeScreen() {
             />
           </>
         )}
-      </ScrollView>
+      </Animated.ScrollView>
+      <StatusBarScrim scrollY={scrollY} />
     </View>
   );
 }

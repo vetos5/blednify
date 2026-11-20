@@ -45,6 +45,7 @@ import { LyricsCard } from '@/ui/components/player/LyricsCard';
 import { UpNextCard } from '@/ui/components/player/UpNextCard';
 import { PressableScale } from '@/ui/components/PressableScale';
 import { SeekBar } from '@/ui/components/SeekBar';
+import { StatusBarScrim } from '@/ui/components/StatusBarScrim';
 import { Text } from '@/ui/components/Text';
 import { openTrackActions } from '@/ui/components/TrackActions';
 import { DesktopNowPlaying } from '@/ui/desktop/NowPlaying';
@@ -231,6 +232,8 @@ function PlayerScreenContent() {
           </View>
         </GestureDetector>
       )}
+      {/* Over everything that scrolls: cover art, the Lyrics card and the rest slide under the clock otherwise. */}
+      {page ? <StatusBarScrim scrollY={scrollY} /> : null}
     </Animated.View>
   );
 }
