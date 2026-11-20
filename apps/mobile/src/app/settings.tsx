@@ -289,6 +289,8 @@ function ToggleRow({ title, caption, value, onChange }: { title: string; caption
         }}
         trackColor={{ false: colors.surface3, true: colors.accent }}
         thumbColor={colors.white}
+        // react-native-web ignores thumbColor while on and falls back to a teal Material thumb.
+        {...(Platform.OS === 'web' ? ({ activeThumbColor: colors.white } as object) : null)}
         ios_backgroundColor={colors.surface3}
       />
     </View>
