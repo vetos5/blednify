@@ -107,7 +107,7 @@ export function MiniPlayer() {
           {/* Busy (loading, or retrying for as long as an outage lasts) is the same Pause with a ring around it, so
               the only way to stop it stays visible and the glyph doesn't jump. */}
           <View>
-            <IconButton icon={mode === 'play' ? 'play' : 'pause'} label={label} size={26} haptic onPress={player.togglePlay} />
+            <IconButton icon={mode === 'play' ? 'play' : 'pause'} label={label} busy={mode === 'busy'} size={26} haptic onPress={player.togglePlay} />
             {mode === 'busy' && <BusyRing size={40} stroke={2.5} color={colors.textSecondary} />}
           </View>
           <IconButton icon="play-skip-forward" label="Next song" size={22} haptic onPress={player.next} />

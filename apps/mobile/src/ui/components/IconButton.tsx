@@ -20,6 +20,8 @@ export type IconButtonProps = {
   variant?: Variant;
   haptic?: boolean;
   disabled?: boolean;
+  /** Announced as busy (a load or retry in progress); the button still works. */
+  busy?: boolean;
   strokeWidth?: number;
   style?: StyleProp<ViewStyle>;
 };
@@ -42,6 +44,7 @@ export function IconButton({
   variant = 'plain',
   haptic = false,
   disabled,
+  busy,
   strokeWidth,
   style,
 }: IconButtonProps) {
@@ -52,7 +55,7 @@ export function IconButton({
     <PressableScale
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled: !!disabled }}
+      accessibilityState={{ disabled: !!disabled, busy: !!busy }}
       hitSlop={diameter < 44 ? (44 - diameter) / 2 : 0}
       disabled={disabled}
       activeScale={0.88}
