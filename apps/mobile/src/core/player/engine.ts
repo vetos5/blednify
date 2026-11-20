@@ -45,10 +45,11 @@ import { addNetworkStateListener, getNetworkStateAsync } from 'expo-network';
 import { AppState, Platform } from 'react-native';
 
 import { authHeadersFor } from '../auth';
+import { libIndex } from '../lib-index';
 import { recordRecent } from '../library';
 import { isLocalHost } from '../hosts';
 import { getServerBase, kv } from '../settings';
-import { fromStorable, resolveTrack } from '../tracks';
+import { fromStorable, playsOffline, resolveTrack } from '../tracks';
 import type { AppTrack, PlayerState, RepeatMode } from '../types';
 import { shuffled } from '../util';
 import { lockArtwork, prefetchLockArtwork } from './lock-art';
@@ -223,7 +224,9 @@ function prevIndexOf(i: number): number | null {
 
 /** Offline (`offlineOnly`) only songs that play without the network count as a place to move to. */
 function offlinePlayable(): ((j: number) => boolean) | undefined {
-  return offlineOnly ? (j: number) => !!resolveTrack(entries[j].track).localUri : undefined;
+  if (!offlineOnly) return undefined;
+  const downloads = libIndex.getState().downloads;
+  return (j: number) => playsOffline(entries[j].track, downloads);
 }
 
 /**
@@ -441,7 +444,7 @@ type Slot = WindowSlot<Source>;
 function desiredTail(): Slot[] {
   return planTail(entries.length, index, S().repeat === 'all', WINDOW_AHEAD, (i) => {
     const t = entries[i].track;
-    if (offlineOnly && !resolveTrack(t).localUri) return 'skip';
+    if (offlineOnly && !playsOffline(t)) return 'skip';
     const src = sourceOf(t);
     return src ? { uid: entries[i].uid, src, key: srcKey(src) } : null;
   });
@@ -733,7 +736,7 @@ function onStatus(s: NativeStatus) {
     if (s.isLoaded) {
       errorStreak = 0;
       // A streamed song plays (the user picked one): the server answers, so offline playback is over.
-      if (offlineOnly && cur && !resolveTrack(cur).localUri) setOfflineOnly(false);
+      if (offlineOnly && cur && !playsOffline(cur)) setOfflineOnly(false);
       if (netRetry) {
         cancelNetworkRetry();
         playerStore.setState({ error: null });
@@ -782,7 +785,7 @@ function describeError(e: unknown, t: AppTrack | undefined): { message: string; 
   const c = Number(code);
   // 3xxx: the file couldn't be parsed; 4xxx: decoding failed.
   if (c >= 3000 && c < 5000) return { message: `Can't play ${title}: the file is damaged or unsupported`, stop: false };
-  if (t?.localUri && c >= 2000 && c < 3000) return { message: `Can't open the file of ${title}`, stop: false };
+  if (t && playsOffline(t) && c >= 2000 && c < 3000) return { message: `Can't open the file of ${title}`, stop: false };
   return { message: `Couldn't play ${title}`, stop: false };
 }
 
@@ -847,7 +850,8 @@ function retryInPlace(): boolean {
 
 /** The next entry after the current one that plays without the network (downloaded or on-device), if any. */
 function nextOfflineIndex(): number | null {
-  const ni = nextIndexIn(index, entries.length, S().repeat === 'all', (j) => !!resolveTrack(entries[j].track).localUri);
+  const downloads = libIndex.getState().downloads;
+  const ni = nextIndexIn(index, entries.length, S().repeat === 'all', (j) => playsOffline(entries[j].track, downloads));
   return ni === index ? null : ni;
 }
 
@@ -927,7 +931,7 @@ function waitForNetwork(message: string) {
     netRetry = { uid: cur.uid, attempt: 0, since: Date.now(), timer: null };
     // Only the first failure is announced; retries stay quiet until one works or we give up.
     playerStore.setState({ error: `${message}. Retrying…`, errorId: S().errorId + 1 });
-    if (!resolveTrack(cur.track).localUri) skipToOfflineSongIfOffline(cur.uid);
+    if (!playsOffline(cur.track)) skipToOfflineSongIfOffline(cur.uid);
   }
   const r = netRetry;
   if (Date.now() - r.since > NETWORK_GIVE_UP_MS) {

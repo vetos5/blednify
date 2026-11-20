@@ -19,6 +19,15 @@ export function useResolveCtx(): ResolveCtx {
 }
 
 /**
+ * Whether `t` plays without the network: an on-device file, or a remote song with a finished download. The same
+ * answer as `!!resolveTrack(t).localUri`, without building URLs or a new object, for the player's offline scans
+ * over the whole queue.
+ */
+export function playsOffline(t: AppTrack, downloads: ReadonlyMap<string, DownloadEntry> = libIndex.getState().downloads): boolean {
+  return t.origin === 'local' ? !!t.localUri : downloads.has(t.key);
+}
+
+/**
  * Recompute URIs of a remote track for the current server URL and download state.
  * Local tracks are returned unchanged. Returns the same object when nothing changed.
  */
