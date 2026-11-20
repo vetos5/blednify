@@ -448,7 +448,6 @@ function Ghost({ track, drag, rowH }: { track: AppTrack; drag: DragState; rowH: 
   );
 }
 
-
 const useStyles = makeStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },

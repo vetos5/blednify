@@ -67,7 +67,6 @@ function ListRowImpl({
 
 export const ListRow = memo(ListRowImpl);
 
-
 const useStyles = makeStyles((colors) => ({
   row: {
     minHeight: TRACK_ROW_HEIGHT,

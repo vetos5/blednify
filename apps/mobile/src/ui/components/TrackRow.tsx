@@ -257,7 +257,6 @@ function WideLike({ track, visible }: { track: AppTrack; visible: boolean }) {
   );
 }
 
-
 const useStyles = makeStyles((colors) => ({
   // minHeight: at a large system font size the two text lines grow the row instead of being clipped.
   row: { minHeight: TRACK_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.lg, gap: space.md },
