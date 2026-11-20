@@ -28,6 +28,7 @@ export {
   useServerStatus,
   type Unreachable,
 } from './catalog';
+export { connectionLabel, unreachablePrefix, useConnection, type Connection } from './connection';
 
 // Search history
 export {

@@ -20,6 +20,8 @@ import {
   type ArtistView,
   type SearchHistoryEntry,
   fileStorageSupported,
+  unreachablePrefix,
+  useConnection,
 } from '@/core';
 import { importMusic } from '@/ui/actions';
 import { Backdrop } from '@/ui/components/Backdrop';
@@ -79,6 +81,7 @@ export default function SearchScreen() {
   const deferred = useDeferredValue(query.trim());
   const history = useSearchHistory();
   const { tracks, albums, artists, isLoading, unreachable, retry } = useSearch(deferred);
+  const { phoneOffline } = useConnection();
 
   const shownTracks = tracks.slice(0, TRACK_LIMIT);
   const items: Item[] = [];
@@ -88,7 +91,7 @@ export default function SearchScreen() {
       items.push({
         type: 'header',
         key: 'h:offline',
-        title: unreachable === 'refused' ? 'Access token refused · results from this phone' : 'Server offline · results from this phone',
+        title: `${unreachablePrefix(unreachable, phoneOffline)} · results from this phone`,
       });
     if (shownTracks.length) {
       items.push({ type: 'header', key: 'h:tracks', title: 'Songs' });

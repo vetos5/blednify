@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import { useNetworkState } from 'expo-network';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -11,7 +10,9 @@ import {
   useRecentlyPlayed,
   useRemoteAlbums,
   useRemoteTracks,
-  useServerStatus,
+  useConnection,
+  connectionLabel,
+  type Connection,
   type AlbumView,
   type AppTrack,
   fileStorageSupported,
@@ -72,7 +73,7 @@ export default function HomeScreen() {
   const wide = useIsWide();
   const gutter = useGutter();
   const cardW = useRailCardWidth();
-  const server = useServerStatus();
+  const conn = useConnection();
   const recent = useRecentlyPlayed(20);
   // The grid already lists recent tracks; the rail shows the albums they came from.
   const recentAlbums = useMemo(() => recentAlbumsOf(recent), [recent]);
@@ -85,12 +86,12 @@ export default function HomeScreen() {
 
   const fresh = newOnServer.tracks.slice(0, 20);
   const albums = remoteAlbums.albums.slice(0, 20);
-  const hasServer = server.serverUrl.length > 0;
+  const hasServer = conn.serverUrl.length > 0;
   const hasLibrary = localTracks.length > 0 || recent.length > 0 || liked.length > 0;
   const showWelcome = !hasServer && !hasLibrary;
-  const showOffline = hasServer && !server.isLoading && !server.online && fresh.length === 0;
-  // The phone itself has no connection: the server's address is not what needs fixing.
-  const phoneOffline = useNetworkState().isConnected === false;
+  // No connection at all: always say so (cached "New on server" cards don't make the phone online). A server that
+  // doesn't answer while the phone is online only gets the card when there's nothing cached to show instead.
+  const notice = conn.state === 'phone-offline' || ((conn.state === 'server-offline' || conn.state === 'needs-token') && fresh.length === 0) ? conn.state : null;
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -123,13 +124,7 @@ export default function HomeScreen() {
             <Text variant="display" numberOfLines={1} adjustsFontSizeToFit>
               {greeting()}
             </Text>
-            <ServerPill
-              online={server.online}
-              needsToken={server.needsToken}
-              loading={server.isLoading}
-              hasServer={hasServer}
-              trackCount={server.trackCount}
-            />
+            <ServerPill state={conn.state} trackCount={conn.trackCount} />
           </View>
           {fileStorageSupported ? <IconButton icon="arrow-down-circle-outline" label="Downloads" onPress={nav.downloads} /> : null}
           {/* The wide layout's sidebar has Settings. */}
@@ -152,14 +147,15 @@ export default function HomeScreen() {
           <>
             <QuickGrid recent={recent} likedCount={liked.length} />
 
-            {showOffline ? (
+            {notice ? (
               <View style={[styles.notice, glass, { marginHorizontal: gutter }]}>
-                <Icon name="cloud-offline-outline" size={22} color={colors.textSecondary} />
+                <Icon name={notice === 'needs-token' ? 'key-outline' : 'cloud-offline-outline'} size={22} color={colors.textSecondary} />
                 <View style={styles.noticeText}>
-                  <Text variant="bodyStrong">{phoneOffline ? 'You’re offline' : 'Server unreachable'}</Text>
-                  <Text variant="caption">{offlineCaption(phoneOffline)}</Text>
+                  <Text variant="bodyStrong">{NOTICE_TITLE[notice]}</Text>
+                  <Text variant="caption">{noticeCaption(notice)}</Text>
                 </View>
-                <IconButton icon="chevron-forward" label="Open settings" onPress={nav.settings} />
+                {/* Settings can't bring the phone's network back. */}
+                {notice === 'phone-offline' ? null : <IconButton icon="chevron-forward" label="Open settings" onPress={nav.settings} />}
               </View>
             ) : null}
 
@@ -244,26 +240,15 @@ export default function HomeScreen() {
   );
 }
 
-function ServerPill({
-  online,
-  needsToken,
-  loading,
-  hasServer,
-  trackCount,
-}: {
-  online: boolean;
-  needsToken: boolean;
-  loading: boolean;
-  hasServer: boolean;
-  trackCount: number;
-}) {
+function ServerPill({ state, trackCount }: { state: Connection; trackCount: number }) {
   const styles = useStyles();
   const colors = useColors();
-  if (!hasServer) return <Text variant="caption">Local library</Text>;
-  const label = loading ? 'Connecting…' : online ? `Server · ${trackCount.toLocaleString()} songs` : needsToken ? 'Server needs a token' : 'Server offline';
+  const label = connectionLabel(state, trackCount, { downloads: fileStorageSupported });
+  if (state === 'none') return <Text variant="caption">{label}</Text>;
+  const dot = state === 'online' ? colors.success : state === 'connecting' || state === 'phone-offline' ? colors.textTertiary : colors.danger;
   return (
     <View style={styles.pill}>
-      <View style={[styles.pillDot, { backgroundColor: online ? colors.success : loading ? colors.textTertiary : colors.danger }]} />
+      <View style={[styles.pillDot, { backgroundColor: dot }]} />
       <Text variant="caption">{label}</Text>
     </View>
   );
@@ -347,15 +332,24 @@ function QuickTile({
   );
 }
 
+type Notice = 'phone-offline' | 'server-offline' | 'needs-token';
 
-/** Caption of the Home notice when the server doesn't answer. */
-function offlineCaption(phoneOffline: boolean): string {
-  if (phoneOffline)
+const NOTICE_TITLE: Record<Notice, string> = {
+  'phone-offline': 'You’re offline',
+  'server-offline': 'Server unreachable',
+  'needs-token': 'Your server needs an access token',
+};
+
+/** Caption of the Home notice when the server's music can't be reached. */
+function noticeCaption(n: Notice): string {
+  if (n === 'phone-offline')
     return fileStorageSupported
       ? 'Your downloads and on-phone music still play. Server songs come back when you’re online.'
       : 'Your playlists and likes are here. Songs play again when you’re back online.';
+  if (n === 'needs-token') return 'Add the listen token in Settings.';
   return fileStorageSupported ? 'Playing from your phone. Check the address in Settings.' : 'Check the server address in Settings.';
 }
+
 const useStyles = makeStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.bg },
   fill: { flex: 1 },

@@ -22,6 +22,8 @@ import {
   type ArtistView,
   type Unreachable,
   fileStorageSupported,
+  unreachablePrefix,
+  useConnection,
 } from '@/core';
 import { importMusic } from '@/ui/actions';
 import { Backdrop } from '@/ui/components/Backdrop';
@@ -297,10 +299,11 @@ function ArtistsGrid() {
 function OfflineNote({ why, what }: { why: Unreachable; what: string }) {
   const styles = useStyles();
   const colors = useColors();
+  const { phoneOffline } = useConnection();
   if (why !== 'refused')
     return (
       <Text variant="caption" style={styles.gridNote}>
-        Server offline · {what} on this phone
+        {unreachablePrefix(why, phoneOffline)} · {what} on this phone
       </Text>
     );
   return (

@@ -2,7 +2,7 @@ import { useGlobalSearchParams, usePathname } from 'expo-router';
 import type { ReactNode } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
-import { useLikedTracks, usePlaylists, useServerStatus, type Playlist } from '@/core';
+import { connectionLabel, useConnection, useLikedTracks, usePlaylists, type Playlist } from '@/core';
 
 import { Artwork } from '../components/Artwork';
 import { BrandMark } from '../components/BrandMark';
@@ -260,18 +260,9 @@ function PlaylistItem({ playlist: p, rail, active }: { playlist: Playlist; rail:
 function Footer({ rail, active }: { rail: boolean; active: boolean }) {
   const styles = useStyles();
   const colors = useColors();
-  const server = useServerStatus();
-  const hasServer = server.serverUrl.length > 0;
-  const status = !hasServer
-    ? 'No server'
-    : server.isLoading
-      ? 'Connecting…'
-      : server.online
-        ? plural(server.trackCount, 'song')
-        : server.needsToken
-          ? 'Needs a token'
-          : 'Server offline';
-  const dot = server.online ? colors.success : server.isLoading ? colors.textTertiary : colors.danger;
+  const conn = useConnection();
+  const status = connectionLabel(conn.state, conn.trackCount, { short: true });
+  const dot = conn.state === 'online' ? colors.success : conn.state === 'connecting' || conn.state === 'phone-offline' ? colors.textTertiary : colors.danger;
   const row = (
     <Pressable
       accessibilityRole="link"
