@@ -8,7 +8,7 @@ mock.module('react-native', () => ({
 mock.module('expo-router', () => ({ DarkTheme: { colors: {}, fonts: {} }, DefaultTheme: { colors: {}, fonts: {} } }));
 mock.module('@/core', () => ({ themeStore: { getState: () => ({ preset: 'blednify' }), subscribe: () => () => {} } }));
 
-const { ACCENT_SWATCHES, BACKGROUND_SWATCHES, THEME_PRESETS, paletteFor, trackRowHeight, TRACK_ROW_HEIGHT } = await import('../src/ui/theme');
+const { ACCENT_SWATCHES, BACKGROUND_SWATCHES, SWATCH_NAMES, THEME_PRESETS, paletteFor, trackRowHeight, TRACK_ROW_HEIGHT } = await import('../src/ui/theme');
 
 function lum(hex: string): number {
   const h = hex.replace('#', '');
@@ -55,4 +55,8 @@ describe('trackRowHeight', () => {
     expect(trackRowHeight(2)).toBe(104);
     expect(trackRowHeight(1.3)).toBeGreaterThan(TRACK_ROW_HEIGHT);
   });
+});
+
+test('every swatch has a spoken name', () => {
+  for (const c of [...ACCENT_SWATCHES, ...BACKGROUND_SWATCHES]) expect({ c, name: SWATCH_NAMES[c] }).toEqual({ c, name: expect.any(String) });
 });

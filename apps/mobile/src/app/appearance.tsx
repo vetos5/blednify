@@ -16,6 +16,7 @@ import { useIsWide, useReadableColumn } from '@/ui/layout';
 import {
   ACCENT_SWATCHES,
   BACKGROUND_SWATCHES,
+  SWATCH_NAMES,
   makeStyles,
   paletteFor,
   presetById,
@@ -80,7 +81,7 @@ export default function AppearanceScreen() {
         <View style={styles.swatches}>
           <Swatch color={preset.accent} selected={pref.accent === null} label="Theme default" onPress={() => pickAccent(null)} badge="T" />
           {ACCENT_SWATCHES.filter((c) => c !== preset.accent).map((c) => (
-            <Swatch key={c} color={c} selected={pref.accent === c} label={`Accent ${c}`} onPress={() => pickAccent(c)} />
+            <Swatch key={c} color={c} selected={pref.accent === c} label={`Accent: ${SWATCH_NAMES[c] ?? c}`} onPress={() => pickAccent(c)} />
           ))}
           <CustomSwatch
             active={pref.accent !== null && !(ACCENT_SWATCHES as readonly string[]).includes(pref.accent)}
@@ -96,7 +97,7 @@ export default function AppearanceScreen() {
         <View style={styles.swatches}>
           <Swatch color={preset.bg} selected={pref.background === null} label="Theme default" onPress={() => pickBackground(null)} badge="T" />
           {BACKGROUND_SWATCHES.filter((c) => c !== preset.bg).map((c) => (
-            <Swatch key={c} color={c} selected={pref.background === c} label={`Background ${c}`} onPress={() => pickBackground(c)} />
+            <Swatch key={c} color={c} selected={pref.background === c} label={`Background: ${SWATCH_NAMES[c] ?? c}`} onPress={() => pickBackground(c)} />
           ))}
           <CustomSwatch
             active={pref.background !== null && !(BACKGROUND_SWATCHES as readonly string[]).includes(pref.background)}

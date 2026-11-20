@@ -120,6 +120,29 @@ export const BACKGROUND_SWATCHES = [
   '#FFF8EE',
 ] as const;
 
+/** Spoken names of the swatches: a screen reader reads the label, and "#DC3135" means nothing aloud. */
+export const SWATCH_NAMES: Readonly<Record<string, string>> = {
+  '#DC3135': 'Red',
+  '#FB923C': 'Orange',
+  '#F5C451': 'Yellow',
+  '#A3E635': 'Lime',
+  '#2EE6A6': 'Mint',
+  '#22D3EE': 'Cyan',
+  '#38BDF8': 'Sky blue',
+  '#6366F1': 'Indigo',
+  '#A78BFA': 'Violet',
+  '#F472B6': 'Pink',
+  '#F5F5F7': 'White',
+  '#0A0A0C': 'Near black',
+  '#000000': 'Black',
+  '#060A1A': 'Midnight blue',
+  '#05110E': 'Deep green',
+  '#0D0A16': 'Deep purple',
+  '#120A06': 'Deep brown',
+  '#1A1A1E': 'Graphite',
+  '#FFF8EE': 'Warm white',
+};
+
 // --- Color math ----------------------------------------------------------------------------------
 
 type RGB = [number, number, number];
