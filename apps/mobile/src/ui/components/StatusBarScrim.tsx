@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Platform, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import Animated, {
   interpolate,
@@ -18,6 +18,8 @@ import { Backdrop } from './Backdrop';
 const FADE_PX = 24;
 /** Below the status bar a soft shadow runs on this far, so content isn't cut at a hard edge. */
 const TAIL_PX = 20;
+/** How long the copy stays mounted after scrolling back to the top, so flicking around the top doesn't remount it. */
+const UNMOUNT_AFTER_MS = 1500;
 
 /**
  * Scroll wiring for lists that can't take a Reanimated scroll handler (FlashList): a plain onScroll that feeds the
@@ -50,7 +52,8 @@ export function useScrimScroll(): {
  *
  * The copy is mounted only while something is scrolled under the clock (it is fully transparent at the top anyway),
  * so a screen at rest, and the player on a song change, never pay for a second background (on the player a second
- * full-size blurred cover).
+ * full-size blurred cover). It lingers briefly after returning to the top, so scrolling about the top doesn't remount
+ * it every time.
  */
 export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<number>; surface?: ReactNode }) {
   const styles = useStyles();
@@ -58,11 +61,25 @@ export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<numb
   const insets = useSafeAreaInsets();
   // The background is laid out against the whole screen root; its copy must be too, or a glow or cover would shift.
   const [rootH, setRootH] = useState(0);
-  const [scrolled, setScrolled] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const unmountTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onScrolledChange = useCallback((scrolled: boolean) => {
+    if (unmountTimer.current) clearTimeout(unmountTimer.current);
+    unmountTimer.current = null;
+    if (scrolled) setMounted(true);
+    else unmountTimer.current = setTimeout(() => setMounted(false), UNMOUNT_AFTER_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (unmountTimer.current) clearTimeout(unmountTimer.current);
+    },
+    [],
+  );
   useAnimatedReaction(
     () => scrollY.get() > 0,
     (now, before) => {
-      if (now !== before) scheduleOnRN(setScrolled, now);
+      // The first run (before === null) only matters if the screen opens already scrolled.
+      if (now !== (before ?? false)) scheduleOnRN(onScrolledChange, now);
     },
   );
   const shown = useAnimatedStyle(() => ({ opacity: interpolate(scrollY.get(), [0, FADE_PX], [0, 1], 'clamp') }));
@@ -75,7 +92,7 @@ export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<numb
       aria-hidden
       style={styles.root}
       onLayout={(e) => setRootH(Math.round(e.nativeEvent.layout.height))}>
-      {rootH > 0 && scrolled ? (
+      {rootH > 0 && mounted ? (
         <Animated.View style={[styles.band, { height: insets.top + TAIL_PX }, shown]}>
           <View style={[styles.slice, { height: insets.top }]}>
             <View style={[styles.slice, { height: rootH, backgroundColor: colors.bg }]}>{surface ?? <Backdrop still />}</View>
