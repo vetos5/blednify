@@ -504,7 +504,9 @@ const useStyles = makeStyles((colors) => ({
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.lg, paddingTop: space.lg },
   sectionBody: { padding: space.lg, gap: space.md },
   input: {
-    height: 48,
+    // Grows with the system font size (a fixed 48 clipped the masked token at the largest sizes).
+    minHeight: 48,
+    paddingVertical: space.sm,
     borderRadius: radius.md,
     backgroundColor: colors.surface2,
     paddingHorizontal: space.lg,
