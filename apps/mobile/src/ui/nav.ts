@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { create, useStore } from 'zustand';
 
 import type { Origin } from '@/core';
 
@@ -33,15 +34,19 @@ export const nav = {
 };
 
 /** Name of the focused root-stack screen, kept by the root layout's `screenListeners`. */
-let rootTop = '(tabs)';
+const rootTopStore = create<{ name: string }>(() => ({ name: '(tabs)' }));
 export function trackRootFocus(name: string) {
-  rootTop = name;
+  if (rootTopStore.getState().name !== name) rootTopStore.setState({ name });
+}
+/** Focused root-stack screen, as a hook. */
+export function useRootTop(): string {
+  return useStore(rootTopStore, (s) => s.name);
 }
 
 function toTabs(href: Parameters<typeof router.navigate>[0]) {
   // dismissTo only pops: with the tabs already on top (a page opened by URL, then a tab, so the tabs sit
   // above it) it is a no-op and the tab never changes. Switch in place then.
-  if (rootTop !== '(tabs)' && router.canDismiss()) router.dismissTo(href);
+  if (rootTopStore.getState().name !== '(tabs)' && router.canDismiss()) router.dismissTo(href);
   else router.navigate(href);
 }
 

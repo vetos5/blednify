@@ -2,7 +2,7 @@ import { View , Platform } from 'react-native';
 import { Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
-import { Fragment, useEffect } from 'react';
+import { Fragment, useEffect, type ReactNode } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -12,7 +12,7 @@ import { ToastHost } from '@/ui/components/Toast';
 import { DesktopShell } from '@/ui/desktop/DesktopShell';
 import { useWebChrome } from '@/ui/desktop/web-chrome';
 import { useIsWide } from '@/ui/layout';
-import { trackRootFocus } from '@/ui/nav';
+import { trackRootFocus, useRootTop } from '@/ui/nav';
 import { makeStyles, navigationThemeFor, useColors } from '@/ui/theme';
 
 // Expo Router supplies zero insets on web. Measure CSS env(safe-area-inset-*) for the existing screen padding.
@@ -29,7 +29,8 @@ export default function RootLayout() {
   const stack = (
     <Stack
       screenOptions={{ headerShown: false, contentStyle: styles.content, animation: wide ? 'fade' : 'ios_from_right' }}
-      screenListeners={({ route }) => ({ focus: () => trackRootFocus(route.name) })}>
+      screenListeners={({ route }) => ({ focus: () => trackRootFocus(route.name) })}
+      screenLayout={({ route, children }) => <CoveredScreen name={route.name}>{children}</CoveredScreen>}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen
         name="player"
@@ -67,7 +68,28 @@ export default function RootLayout() {
   );
 }
 
+/** Root-stack screens drawn see-through: what's under them stays mounted and on screen. */
+const TRANSPARENT_OVER = new Set(['player']);
+
+/**
+ * The player is a transparent modal, so the screen under it stays mounted and in the accessibility tree: TalkBack
+ * could swipe from the player's controls into the Home grid behind it and play songs nobody can see. While a
+ * see-through screen is on top, every other root screen is hidden from screen readers (iOS/web use aria-hidden;
+ * screens under an opaque modal are detached natively already).
+ */
+function CoveredScreen({ name, children }: { name: string; children: ReactNode }) {
+  const styles = useStyles();
+  const top = useRootTop();
+  const covered = top !== name && TRANSPARENT_OVER.has(top);
+  return (
+    <View style={styles.screen} importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'} aria-hidden={covered}>
+      {children}
+    </View>
+  );
+}
+
 const useStyles = makeStyles((colors) => ({
+  screen: { flex: 1 },
   root: { flex: 1, backgroundColor: colors.bg },
   content: { backgroundColor: colors.bg },
   transparent: { backgroundColor: 'transparent' },
