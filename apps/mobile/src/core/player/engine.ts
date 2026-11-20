@@ -518,10 +518,11 @@ function load(idx: number, play: boolean, positionMs = 0) {
   const edits: PlaylistEdit[] = [{ op: 'clear' }];
   natUids = [];
   natUris = [];
-  // The slot behind is what Previous plays (`prevIndexOf`: offline the previous downloaded song). A repeat-all wrap
-  // (pi after idx) is left to `syncWindow`, which places it once the window is built.
+  // The slot behind is what Previous plays (`prevIndexOf`, the same rule `syncWindow` keeps it to): offline the
+  // previous downloaded song, with repeat-all on the first song the last one (a short queue then holds that song both
+  // behind and ahead, as `syncWindow` would leave it).
   const pi = prevIndexOf(idx);
-  const prev = pi !== null && pi >= 0 && pi < idx ? entries[pi] : undefined;
+  const prev = pi !== null && pi !== idx ? entries[pi] : undefined;
   const prevSrc = prev ? sourceOf(prev.track) : null;
   if (prev && prevSrc) {
     edits.push({ op: 'add', source: prevSrc });
