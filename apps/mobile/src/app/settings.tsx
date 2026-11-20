@@ -297,7 +297,8 @@ function ToggleRow({ title, caption, value, onChange }: { title: string; caption
 
 /** How often opening Settings asks the server again what its last scan held back. */
 const ADMIN_RECHECK_MS = 30_000;
-let lastAdminCheck = 0;
+/** When the last check answered, and for which server and admin token (another pair is asked at once). */
+let lastAdminCheck = { at: 0, for: '' };
 let adminCheckInFlight = false;
 
 /** Admin mode: upload / delete / rescan on the server with its ADMIN_TOKEN. */
@@ -319,17 +320,19 @@ function AdminSection() {
   // Again on each visit (throttled): the server rescans on its own, holding or releasing songs.
   useFocusEffect(
     useCallback(() => {
-      if (!canCheck || adminCheckInFlight || Date.now() - lastAdminCheck < ADMIN_RECHECK_MS) return;
+      const pair = `${settings.serverUrl}|${settings.adminToken}`;
+      const recent = lastAdminCheck.for === pair && Date.now() - lastAdminCheck.at < ADMIN_RECHECK_MS;
+      if (!canCheck || adminCheckInFlight || recent) return;
       adminCheckInFlight = true;
       // Only an answer counts towards the throttle: after a failed check the next visit asks again.
       void checkAdmin()
         .then((r) => {
-          if (r.ok) lastAdminCheck = Date.now();
+          if (r.ok) lastAdminCheck = { at: Date.now(), for: pair };
         })
         .finally(() => {
           adminCheckInFlight = false;
         });
-    }, [canCheck]),
+    }, [canCheck, settings.serverUrl, settings.adminToken]),
   );
 
   const check = async () => {
