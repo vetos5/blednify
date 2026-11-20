@@ -55,7 +55,7 @@ import { shuffled } from '../util';
 import { lockArtwork, prefetchLockArtwork } from './lock-art';
 import { fromRow, toRow, type QueueRow } from './queue-rows';
 import { playerStore, progressStore } from './store';
-import { errorPlan, stallAction } from './stall';
+import { errorPlan, publishedPlayState, stallAction } from './stall';
 import { backOnlineVerdict, LAN_REPROBE_MS, offlineVerdict, PROBE_TIMEOUT_MS, type NetState } from './reach';
 import { nextIndexIn, planTail, planWindow, prevIndexIn, resolveNativeMove, WINDOW_AHEAD, type Slot as WindowSlot } from './window';
 
@@ -158,6 +158,9 @@ let listenedMs = 0;
 let lastTimeS = 0;
 let recorded = false;
 let lastPositionSave = 0;
+/** A dropped connection being retried on the song `uid` (see "Connection loss" below). */
+let netRetry: { uid: number; attempt: number; since: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
+let netRetrySub: { remove(): void } | null = null;
 
 // --- Audio session ---------------------------------------------------------------------------
 
@@ -523,6 +526,8 @@ function load(idx: number, play: boolean, positionMs = 0) {
   const cur = entries[idx];
   if (!cur) return stopAll();
   clearWatchdog();
+  // Another song: the retry (and the busy button it holds) was for the one we left.
+  if (netRetry && netRetry.uid !== cur.uid) cancelNetworkRetry();
   index = idx;
   pendingSeekMs = null;
   advancingTo = null;
@@ -775,8 +780,13 @@ function onStatus(s: NativeStatus) {
   }
   lastTimeS = s.currentTime;
 
-  const isPlaying = s.playing;
-  const isBuffering = wantPlay && (s.isBuffering || !s.isLoaded);
+  const { isPlaying, isBuffering } = publishedPlayState({
+    nativePlaying: s.playing,
+    nativeBuffering: s.isBuffering,
+    isLoaded: s.isLoaded,
+    wantPlay,
+    retrying: netRetry !== null,
+  });
   const st = S();
   if (st.isPlaying !== isPlaying || st.isBuffering !== isBuffering || (st.error && isPlaying && s.isLoaded))
     playerStore.setState({ isPlaying, isBuffering, ...(isPlaying && s.isLoaded ? { error: null } : null) });
@@ -825,14 +835,12 @@ function isNetworkError(e: unknown): boolean {
 // A dropped connection is not the song's fault: skipping would fail on every following song too and lose the
 // place in this one. Stay on it and reload from the same position until the network is back.
 
-let netRetry: { uid: number; attempt: number; since: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
-let netRetrySub: { remove(): void } | null = null;
-
 function cancelNetworkRetry() {
   if (netRetry?.timer) clearTimeout(netRetry.timer);
   netRetry = null;
   netRetrySub?.remove();
   netRetrySub = null;
+  if (S().retrying) playerStore.setState({ retrying: false });
 }
 
 function retryAfterNetworkError() {
@@ -955,7 +963,7 @@ function waitForNetwork(message: string) {
     cancelNetworkRetry();
     netRetry = { uid: cur.uid, attempt: 0, since: Date.now(), timer: null };
     // Only the first failure is announced; retries stay quiet until one works or we give up.
-    playerStore.setState({ error: `${message}. Retrying…`, errorId: S().errorId + 1 });
+    playerStore.setState({ error: `${message}. Retrying…`, errorId: S().errorId + 1, retrying: true });
     if (!playsOffline(cur.track)) skipToOfflineSongIfOffline(cur.uid);
   }
   const r = netRetry;

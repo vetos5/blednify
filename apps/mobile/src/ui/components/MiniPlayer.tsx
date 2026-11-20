@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import Animated, { Easing, interpolate, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { onProgress, player, usePlayer } from '@/core';
+import { onProgress, player, usePlayButton, usePlayer } from '@/core';
 
 import { ChromeDock, ChromeSurface, useChromeStyle } from '../chrome';
 import { spokenLabel } from '../a11y';
@@ -14,7 +14,7 @@ import { useIsWide } from '../layout';
 import { nav } from '../nav';
 import { makeStyles, MINI_PLAYER_HEIGHT, radius, space, useColors } from '../theme';
 import { Artwork } from './Artwork';
-import { Icon } from './Icon';
+import { BusyRing } from './BusyRing';
 import { IconButton } from './IconButton';
 import { Text } from './Text';
 
@@ -36,8 +36,7 @@ export function MiniPlayer() {
   const styles = useStyles();
   const colors = useColors();
   const current = usePlayer((s) => s.current);
-  const isPlaying = usePlayer((s) => s.isPlaying);
-  const isBuffering = usePlayer((s) => s.isBuffering);
+  const { mode, label } = usePlayButton();
   const floating = useChromeStyle() !== 'classic';
   const x = useSharedValue(0);
   const y = useSharedValue(0);
@@ -105,23 +104,12 @@ export function MiniPlayer() {
               </View>
             </Animated.View>
           </Pressable>
-          {isBuffering && !isPlaying ? (
-            // Still a button: tapping while loading or retrying pauses, like the full player.
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Loading, pause"
-              accessibilityState={{ busy: true }}
-              hitSlop={8}
-              onPress={player.togglePlay}
-              style={styles.spinner}>
-              {/* The pause stays visible inside the ring: an outage can retry for minutes, and a bare spinner
-                  hid the only way to stop it. */}
-              <ActivityIndicator size="large" color={colors.textSecondary} style={styles.ring} />
-              <Icon name="pause" size={16} color={colors.text} />
-            </Pressable>
-          ) : (
-            <IconButton icon={isPlaying ? 'pause' : 'play'} label={isPlaying ? 'Pause' : 'Play'} size={26} haptic onPress={player.togglePlay} />
-          )}
+          {/* Busy (loading, or retrying for as long as an outage lasts) is the same Pause with a ring around it, so
+              the only way to stop it stays visible and the glyph doesn't jump. */}
+          <View>
+            <IconButton icon={mode === 'play' ? 'play' : 'pause'} label={label} size={26} haptic onPress={player.togglePlay} />
+            {mode === 'busy' && <BusyRing size={40} stroke={2.5} color={colors.textSecondary} />}
+          </View>
           <IconButton icon="play-skip-forward" label="Next song" size={22} haptic onPress={player.next} />
           <MiniProgress inset={floating ? PILL_RADIUS : space.sm} />
         </View>
@@ -208,8 +196,6 @@ const useStyles = makeStyles((colors) => ({
   main: { flex: 1, minWidth: 0, alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center' },
   content: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.md, minWidth: 0 },
   meta: { flex: 1, minWidth: 0 },
-  spinner: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  ring: { position: 'absolute' },
   track: {
     position: 'absolute',
     bottom: 0,

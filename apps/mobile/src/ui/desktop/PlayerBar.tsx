@@ -1,6 +1,6 @@
 import { usePathname } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useStore } from 'zustand';
 
 import {
@@ -8,6 +8,7 @@ import {
   player,
   setVolume,
   toggleMute,
+  usePlayButton,
   usePlayer,
   useProgress,
   volumeStore,
@@ -16,6 +17,7 @@ import {
 } from '@/core';
 
 import { Artwork } from '../components/Artwork';
+import { BusyRing } from '../components/BusyRing';
 import { Icon, type IconName } from '../components/Icon';
 import { LikeButton } from '../components/LikeButton';
 import { Text } from '../components/Text';
@@ -131,8 +133,7 @@ const REPEAT: Record<RepeatMode, { label: string; one?: boolean }> = {
 function Transport({ disabled }: { disabled: boolean }) {
   const styles = useStyles();
   const colors = useColors();
-  const isPlaying = usePlayer((s) => s.isPlaying);
-  const isBuffering = usePlayer((s) => s.isBuffering);
+  const { mode, label } = usePlayButton();
   const shuffle = usePlayer((s) => s.shuffle);
   const repeat = usePlayer((s) => s.repeat);
   return (
@@ -146,11 +147,11 @@ function Transport({ disabled }: { disabled: boolean }) {
         onPress={player.toggleShuffle}
       />
       <BarButton icon="play-skip-back" label="Previous" shortcut="Shift ←" size={20} disabled={disabled} onPress={player.previous} />
-      <Tip label={isPlaying ? 'Pause' : 'Play'} shortcut="Space">
+      <Tip label={mode === 'play' ? 'Play' : 'Pause'} shortcut="Space">
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={isPlaying ? 'Pause' : isBuffering ? 'Loading, pause' : 'Play'}
-          accessibilityState={{ busy: isBuffering && !isPlaying, disabled: !!disabled }}
+          accessibilityLabel={label}
+          accessibilityState={{ busy: mode === 'busy', disabled: !!disabled }}
           disabled={disabled}
           onPress={player.togglePlay}
           style={({ hovered, pressed }) => [
@@ -159,11 +160,8 @@ function Transport({ disabled }: { disabled: boolean }) {
             pressed && styles.playPressed,
             disabled && styles.dim,
           ]}>
-          {isBuffering && !isPlaying ? (
-            <ActivityIndicator size="small" color={colors.onAccent} />
-          ) : (
-            <Icon name={isPlaying ? 'pause' : 'play'} size={20} color={colors.onAccent} />
-          )}
+          {mode === 'busy' && <BusyRing size={32} stroke={2.5} color={colors.onAccent} />}
+          <Icon name={mode === 'play' ? 'play' : 'pause'} size={20} color={colors.onAccent} />
         </Pressable>
       </Tip>
       <BarButton icon="play-skip-forward" label="Next" shortcut="Shift →" size={20} disabled={disabled} onPress={player.next} />

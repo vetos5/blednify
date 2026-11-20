@@ -67,3 +67,49 @@ export function errorPlan({
   const retrying = network && wantPlay;
   return { retrying, natBroken: recreate || web || (!retrying && errorsSincePlaying > 0) };
 }
+
+/**
+ * What the player store says about playing and buffering, from a native status. While a dropped connection is being
+ * retried (`retrying`, from the first failure until the song plays, the user pauses, or the retry gives up) native
+ * alternates between "buffering, about to play" and "idle after an error" on every attempt; reading those straight
+ * through made the play button jump between its plain Pause and the busy ring (and its spoken label with it). The
+ * engine owns that state instead: busy, not playing, for the whole backoff.
+ */
+export function publishedPlayState({
+  nativePlaying,
+  nativeBuffering,
+  isLoaded,
+  wantPlay,
+  retrying,
+}: {
+  nativePlaying: boolean;
+  nativeBuffering: boolean;
+  isLoaded: boolean;
+  wantPlay: boolean;
+  retrying: boolean;
+}): { isPlaying: boolean; isBuffering: boolean } {
+  if (retrying && wantPlay) return { isPlaying: false, isBuffering: true };
+  return { isPlaying: nativePlaying, isBuffering: wantPlay && (nativeBuffering || !isLoaded) };
+}
+
+export type PlayButtonMode = 'play' | 'pause' | 'busy';
+
+/** The play button: Play, Pause, or the busy ring around a Pause (a tap cancels the load or the retry). */
+export function playButtonMode({
+  isPlaying,
+  isBuffering,
+  retrying,
+}: {
+  isPlaying: boolean;
+  isBuffering: boolean;
+  retrying: boolean;
+}): PlayButtonMode {
+  if (retrying || (isBuffering && !isPlaying)) return 'busy';
+  return isPlaying ? 'pause' : 'play';
+}
+
+/** Spoken label of the play button: the busy one says what a tap does (it stops the load or the retry). */
+export function playButtonLabel(mode: PlayButtonMode, retrying: boolean): string {
+  if (mode === 'busy') return retrying ? 'Reconnecting, pause' : 'Loading, pause';
+  return mode === 'pause' ? 'Pause' : 'Play';
+}

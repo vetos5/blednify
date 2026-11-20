@@ -18,6 +18,7 @@ import {
   player,
   useActiveLyric,
   useLyrics,
+  usePlayButton,
   usePlayer,
   usePrefetchLyrics,
   type AppTrack,
@@ -25,6 +26,7 @@ import {
   type Lyrics,
 } from '@/core';
 import { ArtworkBackdrop } from '@/ui/components/Artwork';
+import { BusyRing } from '@/ui/components/BusyRing';
 import { EmptyState } from '@/ui/components/EmptyState';
 import { ImmersiveStatusBar } from '@/ui/components/ImmersiveStatusBar';
 import { Icon } from '@/ui/components/Icon';
@@ -283,20 +285,22 @@ function Credit({ source }: { source: Lyrics['source'] }) {
 function MiniTransport() {
   const styles = useStyles();
   const colors = useColors();
-  const isPlaying = usePlayer((s) => s.isPlaying);
+  const { mode, label } = usePlayButton();
   return (
     <View style={styles.transport}>
       <IconButton icon="play-skip-back" label="Previous" size={28} diameter={52} haptic onPress={player.previous} />
       <PressableScale
         accessibilityRole="button"
-        accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+        accessibilityLabel={label}
+        accessibilityState={{ busy: mode === 'busy' }}
         activeScale={0.9}
         onPress={() => {
           haptics.press();
           player.togglePlay();
         }}
         style={styles.playButton}>
-        <Icon name={isPlaying ? 'pause' : 'play'} size={30} color={colors.black} />
+        {mode === 'busy' && <BusyRing size={58} color={colors.black} />}
+        <Icon name={mode === 'play' ? 'play' : 'pause'} size={30} color={colors.black} />
       </PressableScale>
       <IconButton icon="play-skip-forward" label="Next" size={28} diameter={52} haptic onPress={player.next} />
     </View>

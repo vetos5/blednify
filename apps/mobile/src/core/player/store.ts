@@ -1,6 +1,7 @@
 import { create, useStore } from 'zustand';
 
 import type { PlayerState } from '../types';
+import { playButtonLabel, playButtonMode, type PlayButtonMode } from './stall';
 
 export const playerStore = create<PlayerState>(() => ({
   queue: [],
@@ -8,11 +9,19 @@ export const playerStore = create<PlayerState>(() => ({
   current: null,
   isPlaying: false,
   isBuffering: false,
+  retrying: false,
   repeat: 'off',
   shuffle: false,
   error: null,
   errorId: 0,
 }));
+
+/** What the play button shows and says (`playButtonMode`): steady through a whole network retry. */
+export function usePlayButton(): { mode: PlayButtonMode; label: string } {
+  const mode = useStore(playerStore, playButtonMode);
+  const retrying = useStore(playerStore, (s) => s.retrying);
+  return { mode, label: playButtonLabel(mode, retrying) };
+}
 
 type Progress = { positionMs: number; durationMs: number };
 

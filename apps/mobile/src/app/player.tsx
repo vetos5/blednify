@@ -1,6 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState, type ComponentRef, type RefObject } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import {
   GestureDetector,
   useNativeGesture,
@@ -24,6 +24,7 @@ import {
   hasLyrics,
   player,
   useLyrics,
+  usePlayButton,
   usePlayer,
   usePrefetchLyrics,
   type AppTrack,
@@ -37,6 +38,7 @@ import { Icon } from '@/ui/components/Icon';
 import { IconButton } from '@/ui/components/IconButton';
 import { LikeButton } from '@/ui/components/LikeButton';
 import { PlaylistPicker } from '@/ui/components/PlaylistPicker';
+import { BusyRing } from '@/ui/components/BusyRing';
 import { ArtistCard } from '@/ui/components/player/ArtistCard';
 import { FileInfoCard } from '@/ui/components/player/FileInfoCard';
 import { LyricsCard } from '@/ui/components/player/LyricsCard';
@@ -450,8 +452,7 @@ const REPEAT_ICON: Record<RepeatMode, { label: string; badge?: string }> = {
 function Transport() {
   const styles = useStyles();
   const colors = useColors();
-  const isPlaying = usePlayer((s) => s.isPlaying);
-  const isBuffering = usePlayer((s) => s.isBuffering);
+  const { mode, label } = usePlayButton();
   const shuffle = usePlayer((s) => s.shuffle);
   const repeat = usePlayer((s) => s.repeat);
 
@@ -475,24 +476,18 @@ function Transport() {
       />
       <PressableScale
         accessibilityRole="button"
-        // While loading or retrying the tap pauses (cancels the pending start), so say so.
-        accessibilityLabel={isPlaying ? 'Pause' : isBuffering ? 'Loading, pause' : 'Play'}
-        accessibilityState={{ busy: isBuffering && !isPlaying }}
+        // While loading or retrying the tap pauses (cancels the pending start), so the label says so.
+        accessibilityLabel={label}
+        accessibilityState={{ busy: mode === 'busy' }}
         activeScale={0.9}
         onPress={() => {
           haptics.press();
           player.togglePlay();
         }}
         style={styles.playButton}>
-        {isBuffering && !isPlaying ? (
-          // Pause inside the ring: tapping stops the load or a network retry.
-          <>
-            <ActivityIndicator size="large" color={colors.onAccent} style={styles.playRing} />
-            <Icon name="pause" size={22} color={colors.onAccent} />
-          </>
-        ) : (
-          <Icon name={isPlaying ? 'pause' : 'play'} size={34} color={colors.onAccent} />
-        )}
+        {/* Busy is the same Pause with a ring around the button's edge: tapping stops the load or a network retry. */}
+        {mode === 'busy' && <BusyRing size={70} color={colors.onAccent} />}
+        <Icon name={mode === 'play' ? 'play' : 'pause'} size={34} color={colors.onAccent} />
       </PressableScale>
       <IconButton
         icon="play-skip-forward"
@@ -562,7 +557,6 @@ const useStyles = makeStyles((colors) => ({
     letterSpacing: 1,
     fontWeight: '700',
   },
-  playRing: { position: 'absolute', transform: [{ scale: 1.5 }] },
   playButton: {
     width: 76,
     height: 76,

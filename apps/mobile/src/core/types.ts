@@ -76,6 +76,11 @@ export type PlayerState = {
   current: AppTrack | null;
   isPlaying: boolean;
   isBuffering: boolean;
+  /**
+   * A dropped connection is being retried on the current song (from the first failure until it plays, the user
+   * pauses, or the retry gives up). Owned by the engine; the play button stays busy for all of it.
+   */
+  retrying: boolean;
   repeat: RepeatMode;
   shuffle: boolean;
   error: string | null;
