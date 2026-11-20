@@ -300,6 +300,28 @@ const ADMIN_RECHECK_MS = 30_000;
 /** When the last check answered, and for which server and admin token (another pair is asked at once). */
 let lastAdminCheck = { at: 0, for: '' };
 let adminCheckInFlight = false;
+/** The server|token pair Settings last asked about ('' when admin checks are off). */
+let wantedAdminPair = '';
+
+/**
+ * Asks the server about held songs for `wantedAdminPair` unless that pair got an answer in the last
+ * ADMIN_RECHECK_MS. A pair change while a check runs is asked about as soon as that check ends.
+ */
+function ensureAdminCheck() {
+  const pair = wantedAdminPair;
+  if (!pair || adminCheckInFlight) return;
+  if (lastAdminCheck.for === pair && Date.now() - lastAdminCheck.at < ADMIN_RECHECK_MS) return;
+  adminCheckInFlight = true;
+  // Only an answer counts towards the throttle: after a failed check the next visit asks again.
+  void checkAdmin()
+    .then((r) => {
+      lastAdminCheck = r.ok ? { at: Date.now(), for: pair } : { at: 0, for: '' };
+    })
+    .finally(() => {
+      adminCheckInFlight = false;
+      if (wantedAdminPair !== pair) ensureAdminCheck();
+    });
+}
 
 /** Admin mode: upload / delete / rescan on the server with its ADMIN_TOKEN. */
 function AdminSection() {
@@ -320,18 +342,11 @@ function AdminSection() {
   // Again on each visit (throttled): the server rescans on its own, holding or releasing songs.
   useFocusEffect(
     useCallback(() => {
-      const pair = `${settings.serverUrl}|${settings.adminToken}`;
-      const recent = lastAdminCheck.for === pair && Date.now() - lastAdminCheck.at < ADMIN_RECHECK_MS;
-      if (!canCheck || adminCheckInFlight || recent) return;
-      adminCheckInFlight = true;
-      // Only an answer counts towards the throttle: after a failed check the next visit asks again.
-      void checkAdmin()
-        .then((r) => {
-          if (r.ok) lastAdminCheck = { at: Date.now(), for: pair };
-        })
-        .finally(() => {
-          adminCheckInFlight = false;
-        });
+      const pair = canCheck ? `${settings.serverUrl}|${settings.adminToken}` : '';
+      // Any other pair since the last answer voids it: A → wrong token → A asks again, the count may have moved.
+      if (lastAdminCheck.for !== pair) lastAdminCheck = { at: 0, for: '' };
+      wantedAdminPair = pair;
+      ensureAdminCheck();
     }, [canCheck, settings.serverUrl, settings.adminToken]),
   );
 
