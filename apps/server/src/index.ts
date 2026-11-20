@@ -1,4 +1,5 @@
 import { createApp, createContext, VERSION } from "./app";
+import { refreshTrustedHosts } from "./auth-limit";
 import { loadConfig } from "./config";
 
 export { createApp, createContext } from "./app";
@@ -14,6 +15,17 @@ if (import.meta.main) {
   for (const [name, token] of [["LISTEN_TOKEN", config.listenToken], ["ADMIN_TOKEN", config.adminToken]] as const)
     if (token && token.length < 16)
       console.warn(`${name} is only ${token.length} characters; use 16+ random characters (e.g. openssl rand -hex 16).`);
+  // TRUSTED_PROXIES "dns:" names (the compose tunnel): resolved before the first request, then kept fresh per request.
+  const trusted = config.trustedProxies;
+  if (trusted.hosts.length) {
+    await refreshTrustedHosts(trusted);
+    const n = trusted.resolved.v4.size + trusted.resolved.v6.size;
+    console.log(
+      n
+        ? `TRUSTED_PROXIES: ${trusted.hosts.join(", ")} → ${n} address${n === 1 ? "" : "es"}`
+        : `TRUSTED_PROXIES: ${trusted.hosts.join(", ")} not resolvable (yet); forwarded addresses are ignored until it is`,
+    );
+  }
   const ctx = createContext(config);
   const app = createApp(ctx);
 

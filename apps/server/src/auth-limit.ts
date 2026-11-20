@@ -8,6 +8,7 @@
  * included: answering it differently would tell a guesser it had found it.
  */
 import { createHash } from "node:crypto";
+import { lookup } from "node:dns/promises";
 
 /** Distinct wrong tokens a client may present per window. */
 export const AUTH_MAX_DISTINCT = 20;
@@ -60,11 +61,20 @@ export class AuthLimiter {
  * address there: rotating it would make every guess a "new client", and naming someone else's address would lock
  * them out. So a request from any other peer is keyed on its socket address and its headers are ignored.
  *
- * Entries are CIDRs ("10.0.0.0/8", "fd7a::/48"), single addresses, or the words `loopback` (127.0.0.0/8, ::1),
+ * Entries are CIDRs ("10.0.0.0/8", "fd7a::/48"), single addresses, the words `loopback` (127.0.0.0/8, ::1),
  * `private` (loopback plus 10/8, 172.16/12, 192.168/16, fc00::/7: where a tunnel or reverse proxy in another
- * container on the same host connects from) and `none`.
+ * container on the same host connects from) and `none`, or `dns:NAME`: whatever NAME resolves to, looked up again
+ * every so often (`refreshTrustedHosts`). `dns:tunnel` in the compose file trusts exactly the cloudflared container,
+ * so a port published on the LAN doesn't make every LAN peer a proxy; without the tunnel the name doesn't resolve
+ * and nobody is trusted, which is right for LAN-only use.
  */
-export type TrustedProxies = { v4: [number, number][]; v6: [bigint, bigint][] };
+export type TrustedProxies = {
+  v4: [number, number][];
+  v6: [bigint, bigint][];
+  /** `dns:` names, and the addresses they resolved to last time. */
+  hosts: string[];
+  resolved: { v4: Set<number>; v6: Set<bigint>; at: number };
+};
 
 const KEYWORDS: Record<string, string[]> = {
   none: [],
@@ -116,8 +126,13 @@ function asV4(addr: string): number | null {
 }
 
 export function parseTrustedProxies(spec: string): TrustedProxies {
-  const out: TrustedProxies = { v4: [], v6: [] };
+  const out: TrustedProxies = { v4: [], v6: [], hosts: [], resolved: { v4: new Set(), v6: new Set(), at: 0 } };
   for (const raw of spec.split(/[\s,]+/).filter(Boolean)) {
+    const host = /^dns:([a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)*)$/i.exec(raw)?.[1];
+    if (host) {
+      out.hosts.push(host.toLowerCase());
+      continue;
+    }
     const word = KEYWORDS[raw.toLowerCase()];
     for (const entry of word ?? [raw]) {
       const [addr = "", bitsRaw, extra] = entry.split("/");
@@ -126,7 +141,7 @@ export function parseTrustedProxies(spec: string): TrustedProxies {
       const max = a4 !== null ? 32 : 128;
       const bits = bitsRaw === undefined ? max : Number(bitsRaw);
       if ((a4 === null && a6 === null) || extra !== undefined || !Number.isInteger(bits) || bits < 0 || bits > max)
-        throw new Error(`TRUSTED_PROXIES: "${raw}" is not an address, a CIDR, or one of none, loopback, private`);
+        throw new Error(`TRUSTED_PROXIES: "${raw}" is not an address, a CIDR, dns:<name>, or one of none, loopback, private`);
       if (a4 !== null) {
         const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
         out.v4.push([(a4 & mask) >>> 0, mask]);
@@ -142,9 +157,56 @@ export function parseTrustedProxies(spec: string): TrustedProxies {
 export function isTrusted(trusted: TrustedProxies, addr: string | undefined): boolean {
   if (!addr) return false;
   const a4 = asV4(addr);
-  if (a4 !== null) return trusted.v4.some(([net, mask]) => ((a4 & mask) >>> 0) === net);
+  if (a4 !== null) return trusted.resolved.v4.has(a4) || trusted.v4.some(([net, mask]) => ((a4 & mask) >>> 0) === net);
   const a6 = v6(addr);
-  return a6 !== null && trusted.v6.some(([net, mask]) => (a6 & mask) === net);
+  return a6 !== null && (trusted.resolved.v6.has(a6) || trusted.v6.some(([net, mask]) => (a6 & mask) === net));
+}
+
+/** Store what the `dns:` names resolve to now (a name that doesn't resolve trusts nothing). */
+export function setResolvedHosts(trusted: TrustedProxies, addresses: string[], now = Date.now()): void {
+  const v4s = new Set<number>();
+  const v6s = new Set<bigint>();
+  for (const a of addresses) {
+    const n4 = asV4(a);
+    if (n4 !== null) v4s.add(n4);
+    else {
+      const n6 = v6(a);
+      if (n6 !== null) v6s.add(n6);
+    }
+  }
+  trusted.resolved = { v4: v4s, v6: v6s, at: now };
+}
+
+/** How long a `dns:` lookup is believed; a container that restarts gets a new address. */
+export const TRUSTED_HOSTS_TTL_MS = 30_000;
+/** At most this often when an unknown peer arrives (the tunnel came up after the server, or restarted). */
+const TRUSTED_HOSTS_EAGER_MS = 5_000;
+let inflight: Promise<void> | null = null;
+
+/** Looks the `dns:` names up again. Never throws; returns once the addresses are stored. */
+export function refreshTrustedHosts(trusted: TrustedProxies, now = Date.now()): Promise<void> {
+  if (trusted.hosts.length === 0) return Promise.resolve();
+  if (inflight) return inflight;
+  inflight = Promise.all(
+    trusted.hosts.map((h) =>
+      lookup(h, { all: true }).then(
+        (rs) => rs.map((r) => r.address),
+        () => [] as string[],
+      ),
+    ),
+  )
+    .then((lists) => setResolvedHosts(trusted, lists.flat(), now))
+    .finally(() => {
+      inflight = null;
+    });
+  return inflight;
+}
+
+/** Called per request: refresh in the background when the lookup is old, or soon after an unknown peer shows up. */
+export function noteTrustedHostsPeer(trusted: TrustedProxies, untrustedPeer: boolean, now = Date.now()): void {
+  if (trusted.hosts.length === 0) return;
+  const age = now - trusted.resolved.at;
+  if (age >= TRUSTED_HOSTS_TTL_MS || (untrustedPeer && age >= TRUSTED_HOSTS_EAGER_MS)) void refreshTrustedHosts(trusted, now);
 }
 
 /**
@@ -159,7 +221,9 @@ export function clientKey(
   trusted: TrustedProxies,
 ): string {
   const socket = socketAddress ?? "unknown";
-  if (!isTrusted(trusted, socketAddress)) return socket;
+  const fromProxy = isTrusted(trusted, socketAddress);
+  noteTrustedHostsPeer(trusted, !fromProxy);
+  if (!fromProxy) return socket;
   const cf = headers.get("cf-connecting-ip")?.trim();
   if (cf) return cf;
   const hops = (headers.get("x-forwarded-for") ?? "").split(",").map((h) => h.trim()).filter(Boolean);

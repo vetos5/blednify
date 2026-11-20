@@ -24,9 +24,10 @@ services:
       # Uploads, deletes and rescans need this token. Without it they are refused (403); reads still work.
       # ALLOW_OPEN_WRITES: "1" lifts that on a trusted LAN only.
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
-      # Who may report the visitor's address for the token-guess limit: the tunnel connects from the compose network
-      # (a private address). For a LAN-published port use "loopback" so LAN peers can't fake it.
-      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-private}
+      # Who may report the visitor's address for the token-guess limit: only the tunnel container (looked up by its
+      # service name). Without the tunnel the name doesn't resolve and every peer is counted by its own address, so a
+      # LAN-published port is safe too.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-dns:tunnel}
       # Cloudflare's free plan rejects request bodies over 100 MB, so stay under that behind the tunnel.
       MAX_UPLOAD_MB: "95"
       # Missing lyrics are looked up on lrclib.net (artist, title, album, duration only). "0" turns it off.

@@ -8,6 +8,8 @@ import {
   DEFAULT_TRUSTED_PROXIES,
   isTrusted,
   parseTrustedProxies,
+  refreshTrustedHosts,
+  setResolvedHosts,
 } from "../src/auth-limit";
 import { testServer, type TestServer } from "./fixtures";
 
@@ -44,12 +46,47 @@ describe("trusted proxies", () => {
     for (const a of ["127.0.0.1", "172.18.0.3", "::ffff:172.18.0.3", "10.1.2.3", "192.168.0.10", "fd00::5"])
       expect(isTrusted(t, a)).toBe(true);
     for (const a of ["8.8.8.8", "172.32.0.1", "100.101.102.103", "2001:db8::1"]) expect(isTrusted(t, a)).toBe(false);
-    expect(parseTrustedProxies("none")).toEqual({ v4: [], v6: [] });
+    const none = parseTrustedProxies("none");
+    expect([none.v4, none.v6, none.hosts]).toEqual([[], [], []]);
   });
 
   test("a typo fails loudly instead of trusting nothing (or everything)", () => {
-    for (const bad of ["lan", "10.0.0.0/33", "1.2.3.256", "fe80::1::2", "10.0.0.0/8/1"])
+    for (const bad of ["lan", "tunnel", "10.0.0.0/33", "1.2.3.256", "fe80::1::2", "10.0.0.0/8/1", "dns:", "dns:-x", "dns:a_b"])
       expect(() => parseTrustedProxies(bad)).toThrow(/TRUSTED_PROXIES/);
+  });
+});
+
+describe("trusted proxies by name (dns:)", () => {
+  test("only the addresses the name resolves to are trusted, not the rest of the private network", () => {
+    const t = parseTrustedProxies("dns:tunnel");
+    expect(t.hosts).toEqual(["tunnel"]);
+    expect(isTrusted(t, "172.18.0.3")).toBe(false);
+    setResolvedHosts(t, ["172.18.0.3", "fd00::3"], Date.now());
+    for (const a of ["172.18.0.3", "::ffff:172.18.0.3", "fd00::3"]) expect(isTrusted(t, a)).toBe(true);
+    // A LAN peer on a published port, or the host's docker gateway, is not the tunnel.
+    for (const a of ["172.18.0.1", "192.168.1.20", "127.0.0.1"]) expect(isTrusted(t, a)).toBe(false);
+  });
+
+  test("a spoofed header from a LAN peer is ignored while the tunnel's is believed", () => {
+    const t = parseTrustedProxies("dns:tunnel");
+    setResolvedHosts(t, ["172.18.0.3"], Date.now());
+    const h = (o: Record<string, string>) => new Headers(o);
+    expect(clientKey(h({ "cf-connecting-ip": "1.2.3.4" }), "172.18.0.3", t)).toBe("1.2.3.4");
+    expect(clientKey(h({ "cf-connecting-ip": "1.2.3.4" }), "192.168.1.20", t)).toBe("192.168.1.20");
+  });
+
+  test("a name that doesn't resolve (no tunnel: LAN-only) trusts nobody", async () => {
+    const t = parseTrustedProxies("dns:no-such-host.invalid");
+    await refreshTrustedHosts(t);
+    expect(t.resolved.v4.size + t.resolved.v6.size).toBe(0);
+    expect(t.resolved.at).toBeGreaterThan(0);
+    expect(isTrusted(t, "172.18.0.3")).toBe(false);
+  });
+
+  test("localhost resolves to loopback", async () => {
+    const t = parseTrustedProxies("dns:localhost");
+    await refreshTrustedHosts(t);
+    expect(isTrusted(t, "127.0.0.1") || isTrusted(t, "::1")).toBe(true);
   });
 });
 
