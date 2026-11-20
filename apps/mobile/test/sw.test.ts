@@ -18,7 +18,11 @@ function setup(network: (url: string) => Promise<Response>) {
     const m = stores.get(name)!;
     return {
       match: async (r: Request | string) => m.get(key(r))?.clone(),
-      put: async (r: Request | string, res: Response) => void m.set(key(r), res),
+      // Like Cache Storage: a put replaces the old entry and appends, so the entry moves to the end of the order.
+      put: async (r: Request | string, res: Response) => {
+        m.delete(key(r));
+        m.set(key(r), res);
+      },
       keys: async () => [...m.keys()].map((p) => new Request(ORIGIN + p)),
       delete: async (r: Request | string) => m.delete(key(r)),
     };
@@ -116,5 +120,26 @@ describe('offline shell (sw.js)', () => {
     expect((await sw.request('/_expo/static/js/web/missing.js'))!.status).toBe(404);
     status = 200;
     expect((await sw.request('/_expo/static/js/web/missing.js'))!.status).toBe(200);
+  });
+
+  test('trimming past 200 files drops the least recently used, not a shared font still in use', async () => {
+    let body = HTML;
+    const sw = setup(async (url) => (url.startsWith('/_expo/') || url.startsWith('/assets/') ? new Response(`file ${url}`) : new Response(body, { headers: { 'content-type': 'text/html' } })));
+    // Build 1 stores its bundle and the font every build shares.
+    await sw.request('/', { navigate: true });
+    // Many deploys' worth of chunks later (the font is now the oldest entry)...
+    for (let i = 0; i < 205; i++) await sw.request(`/_expo/static/js/web/chunk-${i}.js`);
+    // ...the app loads the font again (cache hit), then a new shell arrives that only names its new bundle.
+    await sw.request('/assets/font-1.ttf');
+    body = '<html><script src="/_expo/static/js/web/index-new.js"></script></html>';
+    await sw.request('/', { navigate: true });
+    const keys = [...sw.stores.get('blednify-assets-v1')!.keys()];
+    expect(keys.length).toBe(200);
+    expect(keys).toContain('/assets/font-1.ttf');
+    expect(keys).toContain('/_expo/static/js/web/index-new.js');
+    // The old build's bundle and the oldest chunks went first.
+    expect(keys).not.toContain('/_expo/static/js/web/index-abc.js');
+    expect(keys).not.toContain('/_expo/static/js/web/chunk-0.js');
+    expect(keys).toContain('/_expo/static/js/web/chunk-204.js');
   });
 });

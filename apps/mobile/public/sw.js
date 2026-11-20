@@ -8,7 +8,10 @@
  *   connection, or a home server that can't be reached from here) the last shell is served instead. Each fresh
  *   shell is stored, and the bundles it names are fetched into the cache right away, so the next offline start has
  *   everything even if this one ran before the worker was installed.
- * - Hashed files (/_expo/, /assets/): immutable, so cache first; the cache keeps the newest MAX_ASSETS of them.
+ * - Hashed files (/_expo/, /assets/): immutable, so cache first; the cache keeps MAX_ASSETS of them, least recently
+ *   used out first. A file every build shares (a font, an icon) keeps its name across deploys, so it was stored
+ *   long ago: a hit moves it to the back of the line (Cache Storage keeps insertion order, a put re-appends), and
+ *   the current shell's own files are never trimmed.
  * - Everything else (the API, streams, artwork, other origins) is left to the network untouched.
  * Cached responses keep their headers, so the shell stays cross-origin isolated (COOP/COEP) when served from here.
  */
@@ -27,27 +30,67 @@ function shellAssets(html) {
   return [...out];
 }
 
-async function trimAssets() {
+const pathOf = (req) => new URL(typeof req === 'string' ? req : req.url, self.location.origin).pathname;
+
+/** Paths in the asset cache, least recently used first; loaded on first need, then kept in step. */
+let order = null;
+async function assetOrder(cache) {
+  if (!order) order = (await cache.keys()).map(pathOf);
+  return order;
+}
+
+/** Stores a file at the back of the line. */
+async function putAsset(cache, path, res) {
+  const keys = await assetOrder(cache);
+  await cache.put(path, res);
+  const at = keys.indexOf(path);
+  if (at >= 0) keys.splice(at, 1);
+  keys.push(path);
+}
+
+/**
+ * A cache hit: a file in the older half of the line is put again, which moves it to the back. Files near the back
+ * are left as they are, so a launch rewrites few (or no) files.
+ */
+async function touchAsset(cache, path, hit) {
+  const keys = await assetOrder(cache);
+  const at = keys.indexOf(path);
+  if (at >= 0 && at < keys.length - MAX_ASSETS / 2) await putAsset(cache, path, hit);
+}
+
+/** Drops least recently used files beyond MAX_ASSETS, never one in `keep` (the current shell's). */
+async function trimAssets(keep) {
   const cache = await caches.open(ASSET_CACHE);
-  const keys = await cache.keys();
-  // Oldest first (insertion order); old builds' bundles go before the ones in use.
-  for (const req of keys.slice(0, Math.max(0, keys.length - MAX_ASSETS))) await cache.delete(req);
+  const keys = await assetOrder(cache);
+  let extra = keys.length - MAX_ASSETS;
+  for (const path of [...keys]) {
+    if (extra <= 0) break;
+    if (keep.has(path)) continue;
+    await cache.delete(path);
+    keys.splice(keys.indexOf(path), 1);
+    extra--;
+  }
 }
 
 async function storeShell(res) {
   const shell = await caches.open(SHELL_CACHE);
   await shell.put(SHELL_KEY, res.clone());
   const assets = await caches.open(ASSET_CACHE);
-  for (const path of shellAssets(await res.text())) {
-    if (await assets.match(path)) continue;
+  const paths = shellAssets(await res.text());
+  for (const path of paths) {
+    const hit = await assets.match(path);
+    if (hit) {
+      await touchAsset(assets, path, hit);
+      continue;
+    }
     try {
       const r = await fetch(path);
-      if (r.ok) await assets.put(path, r);
+      if (r.ok) await putAsset(assets, path, r);
     } catch {
       // Offline again; the next launch fills it in.
     }
   }
-  await trimAssets();
+  await trimAssets(new Set(paths));
 }
 
 function withTimeout(promise, ms) {
@@ -79,12 +122,18 @@ async function page(event) {
   }
 }
 
-async function hashed(request) {
+async function hashed(event) {
+  const request = event.request;
   const cache = await caches.open(ASSET_CACHE);
+  const path = pathOf(request);
   const hit = await cache.match(request);
-  if (hit) return hit;
+  if (hit) {
+    // Off the response path: the page gets the file now, the reorder (a cache write) happens after.
+    event.waitUntil(touchAsset(cache, path, hit.clone()));
+    return hit;
+  }
   const res = await fetch(request);
-  if (res.ok && res.status === 200) await cache.put(request, res.clone());
+  if (res.ok && res.status === 200) await putAsset(cache, path, res.clone());
   return res;
 }
 
@@ -105,5 +154,5 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
   if (req.mode === 'navigate') event.respondWith(page(event));
-  else if (isHashed(url.pathname) && !req.headers.has('range')) event.respondWith(hashed(req));
+  else if (isHashed(url.pathname) && !req.headers.has('range')) event.respondWith(hashed(event));
 });
