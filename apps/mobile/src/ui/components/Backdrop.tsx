@@ -69,13 +69,14 @@ const TWINKLE_REST = 0.35;
 
 /**
  * One twinkle per cycle (rest → 1 → rest, `delay` into the cycle), then still until the next cycle.
- * Static (fully on) when not animating.
+ * Static at `idle` when not animating: fully on for reduced motion, the resting brightness for a still copy of a
+ * live sky (the status-bar band), so a copied star doesn't sit brighter and bigger than the same star beside it.
  */
-function useTwinkle(animate: boolean, delay: number, duration: number) {
-  const o = useSharedValue(animate ? TWINKLE_REST : 1);
+function useTwinkle(animate: boolean, idle: number, delay: number, duration: number) {
+  const o = useSharedValue(animate ? TWINKLE_REST : idle);
   useEffect(() => {
     if (!animate) {
-      o.set(1);
+      o.set(idle);
       return;
     }
     const ease = Easing.inOut(Easing.quad);
@@ -95,12 +96,14 @@ function useTwinkle(animate: boolean, delay: number, duration: number) {
       ),
     );
     return () => cancelAnimation(o);
-  }, [o, animate, delay, duration]);
+  }, [o, animate, idle, delay, duration]);
   return o;
 }
 
-function Twinkle({ spot, color, animate }: { spot: Spot; color: string; animate: boolean }) {
-  const o = useTwinkle(animate, spot.delay, spot.duration);
+type Motion = { animate: boolean; idle: number };
+
+function Twinkle({ spot, color, motion }: { spot: Spot; color: string; motion: Motion }) {
+  const o = useTwinkle(motion.animate, motion.idle, spot.delay, spot.duration);
   const style = useAnimatedStyle(() => ({ opacity: o.get(), transform: [{ scale: 0.7 + o.get() * 0.5 }] }));
   const { left, top, size } = spot;
   return (
@@ -115,8 +118,8 @@ function Twinkle({ spot, color, animate }: { spot: Spot; color: string; animate:
 }
 
 /** A star with a soft halo (two translucent rings around a bright core). */
-function GlowStar({ spot, color, animate }: { spot: Spot; color: string; animate: boolean }) {
-  const o = useTwinkle(animate, spot.delay, spot.duration + 300);
+function GlowStar({ spot, color, motion }: { spot: Spot; color: string; motion: Motion }) {
+  const o = useTwinkle(motion.animate, motion.idle, spot.delay, spot.duration + 300);
   const style = useAnimatedStyle(() => ({ opacity: 0.45 + o.get() * 0.55 }));
   const halo = spot.size * 5;
   return (
@@ -148,8 +151,8 @@ function GlowStar({ spot, color, animate }: { spot: Spot; color: string; animate
 }
 
 /** A four-point sparkle (✦ drawn as two thin crossed bars) that pulses and turns slightly. */
-function Sparkle({ spot, color, animate }: { spot: Spot; color: string; animate: boolean }) {
-  const o = useTwinkle(animate, spot.delay, spot.duration);
+function Sparkle({ spot, color, motion }: { spot: Spot; color: string; motion: Motion }) {
+  const o = useTwinkle(motion.animate, motion.idle, spot.delay, spot.duration);
   const style = useAnimatedStyle(() => ({
     opacity: 0.3 + o.get() * 0.7,
     transform: [{ scale: 0.6 + o.get() * 0.5 }, { rotate: `${o.get() * 20}deg` }],
@@ -242,7 +245,7 @@ function StarDots({ tint }: { tint: string }) {
   );
 }
 
-function Stars({ colors, animate }: { colors: Palette; animate: boolean }) {
+function Stars({ colors, motion }: { colors: Palette; motion: Motion }) {
   const tint = colors.isLight ? colors.textTertiary : '#FFFFFF';
   return (
     <>
@@ -253,14 +256,14 @@ function Stars({ colors, animate }: { colors: Palette; animate: boolean }) {
       />
       <StarDots tint={tint} />
       {TWINKLERS.map((t, i) => (
-        <Twinkle key={i} spot={t} color={i % 3 === 0 ? colors.accent : tint} animate={animate} />
+        <Twinkle key={i} spot={t} color={i % 3 === 0 ? colors.accent : tint} motion={motion} />
       ))}
     </>
   );
 }
 
 /** Night sky: violet-to-indigo depth, haloed stars, four-point sparkles and the odd shooting star. */
-function NightSky({ colors, animate }: { colors: Palette; animate: boolean }) {
+function NightSky({ colors, motion }: { colors: Palette; motion: Motion }) {
   const starTint = '#D8E2FF';
   return (
     <>
@@ -271,12 +274,12 @@ function NightSky({ colors, animate }: { colors: Palette; animate: boolean }) {
       />
       <StarDots tint={starTint} />
       {GLOWS.map((g, i) => (
-        <GlowStar key={`g${i}`} spot={g} color={i % 2 ? colors.accent : starTint} animate={animate} />
+        <GlowStar key={`g${i}`} spot={g} color={i % 2 ? colors.accent : starTint} motion={motion} />
       ))}
       {SPARKLES.map((s, i) => (
-        <Sparkle key={`s${i}`} spot={s} color={starTint} animate={animate} />
+        <Sparkle key={`s${i}`} spot={s} color={starTint} motion={motion} />
       ))}
-      {animate ? METEORS.map((m, i) => <ShootingStar key={`m${i}`} meteor={m} color={colors.accent} />) : null}
+      {motion.animate ? METEORS.map((m, i) => <ShootingStar key={`m${i}`} meteor={m} color={colors.accent} />) : null}
     </>
   );
 }
@@ -292,12 +295,14 @@ export function Backdrop({ still = false }: { still?: boolean }) {
   const reduceMotion = useReducedMotion();
   if (colors.backdrop === 'none') return null;
   const animate = !still && focused && !reduceMotion;
+  // A still copy matches the live sky between twinkles (reduced motion keeps the live sky fully on, so copy that).
+  const motion = { animate, idle: still && !reduceMotion ? TWINKLE_REST : 1 };
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       {colors.backdrop === 'stars' ? (
-        <Stars colors={colors} animate={animate} />
+        <Stars colors={colors} motion={motion} />
       ) : colors.backdrop === 'night' ? (
-        <NightSky colors={colors} animate={animate} />
+        <NightSky colors={colors} motion={motion} />
       ) : (
         <LinearGradient
           colors={[colors.accentSoft, 'transparent']}
