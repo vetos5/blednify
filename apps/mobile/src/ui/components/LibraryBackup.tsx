@@ -121,9 +121,23 @@ async function runSwitch(key: string, allowEmpty: boolean, onDone?: () => void) 
   showToast(
     allowEmpty ? 'New library started' : 'Library restored',
     'success',
-    previous && previous !== key ? { label: 'Switch back', onPress: () => void runSwitch(previous, true) } : undefined,
+    previous && previous !== key ? { label: 'Switch back', onPress: () => confirmSwitchBack(previous) } : undefined,
   );
   onDone?.();
+}
+
+/**
+ * Going back to the previous key is a switch like any other: it doesn't undo the restore, it takes what is on this
+ * device now (the restored playlists and likes included) to the previous library. Say so before doing it.
+ */
+function confirmSwitchBack(previous: string) {
+  confirm({
+    title: 'Switch back to your previous library?',
+    message:
+      'This device goes back to its previous library key. The playlists and likes you just restored stay here and are added to it; nothing is removed.',
+    confirmLabel: 'Switch back',
+    onConfirm: () => void runSwitch(previous, true),
+  });
 }
 
 function LibraryKeySheet({ keyValue, base }: { keyValue: string; base: string }) {
