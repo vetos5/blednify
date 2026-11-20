@@ -1,6 +1,7 @@
 import { resumeDownloads } from './downloads';
 import { resumeImports } from './imports';
 import { loadLibIndex } from './lib-index';
+import { registerOfflineShell } from './offline-shell';
 import { startLibrarySync } from './library-sync';
 import { configureAudio, refreshQueueTracks, restoreQueue } from './player/engine';
 import { fileStorageSupported } from './platform';
@@ -22,6 +23,7 @@ export function startCore(): Promise<void> {
   restoreQueue();
   void configureAudio();
   void syncWebSession();
+  registerOfflineShell();
   ready = loadLibIndex()
     .then(() => {
       refreshQueueTracks();

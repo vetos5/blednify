@@ -13,6 +13,7 @@ beforeAll(() => {
   writeFileSync(join(web, "index.html"), "<!doctype html><title>Blednify</title>");
   writeFileSync(join(web, "_expo/static/js/app-abc.js"), "console.log(1)");
   writeFileSync(join(web, "manifest.webmanifest"), "{}");
+  writeFileSync(join(web, "sw.js"), "self.addEventListener('fetch', () => {})");
   writeFileSync(join(tmpdir(), "blednify-secret.txt"), "secret");
   srv = testServer({}, { WEB_DIR: web, LISTEN_TOKEN: "t" });
 });
@@ -41,6 +42,13 @@ describe("web app hosting", () => {
     expect(js.headers.get("cache-control")).toContain("immutable");
     const mf = await srv.app.request("/manifest.webmanifest");
     expect(mf.headers.get("content-type")).toBe("application/manifest+json");
+  });
+
+  test("the offline shell's worker is revalidated on every launch, so a new one is picked up", async () => {
+    const res = await srv.app.request("/sw.js");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/javascript");
+    expect(res.headers.get("cache-control")).toBe("no-cache");
   });
 
   test("missing assets 404; the API is not shadowed; no path traversal", async () => {
