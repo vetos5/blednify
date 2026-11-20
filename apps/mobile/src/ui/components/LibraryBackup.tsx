@@ -74,13 +74,11 @@ function promptRestore() {
       title="Library key"
       placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
       submitLabel="Restore"
+      // A typo keeps the sheet open with the text, so 25 characters aren't retyped.
+      validate={(value) => (normalizeLibraryKey(value) ? null : 'That isn’t a library key. It has 25 letters and digits.')}
       onSubmit={(value) => {
         const key = normalizeLibraryKey(value);
-        if (!key) {
-          showToast('That isn’t a library key. It has 25 letters and digits.', 'error');
-          return;
-        }
-        confirmSwitch(key);
+        if (key) confirmSwitch(key);
       }}
     />,
   );
