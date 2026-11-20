@@ -53,7 +53,7 @@ import { haptics } from '@/ui/haptics';
 import { useIsWide } from '@/ui/layout';
 import { goBack, nav } from '@/ui/nav';
 import { showSheet } from '@/ui/overlay';
-import { ForceDark, makeStyles, radius, space, useColors, webLayer } from '@/ui/theme';
+import { ForceDark, makeStyles, radius, space, useColors, webLayer, withAlpha } from '@/ui/theme';
 import { spokenLabel } from '@/ui/a11y';
 
 const DISMISS_DISTANCE = 140;
@@ -395,7 +395,7 @@ function Backdrop({ uri }: { uri: string | null }) {
       <LinearGradient
         colors={
           uri
-            ? ['rgba(10,10,12,0.45)', 'rgba(10,10,12,0.78)', 'rgba(10,10,12,0.96)']
+            ? [withAlpha(colors.bg, 0.45), withAlpha(colors.bg, 0.78), withAlpha(colors.bg, 0.96)]
             : [colors.accentDeep, colors.bg, colors.bg]
         }
         locations={[0, 0.5, 1]}
