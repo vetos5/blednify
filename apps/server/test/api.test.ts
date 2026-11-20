@@ -253,6 +253,40 @@ describe("scan", () => {
     }
   });
 
+  test("deleting a big duplicate folder by hand: held, then confirmed over HTTP, moves and removals counted exactly", async () => {
+    // 30 songs in dup/: 20 also live in keep/ (the copies the admin meant to keep), 10 exist only in dup/.
+    const files: Record<string, Buffer> = {};
+    for (let i = 0; i < 30; i++) {
+      files[`dup/${i}.wav`] = wav({ title: `Dup ${i}` }, 300 + i);
+      if (i < 20) files[`keep/${i}.wav`] = files[`dup/${i}.wav`]!;
+    }
+    const s = testServer(files);
+    const post = async (path: string) => {
+      const res = await s.app.request(path, { method: "POST" });
+      expect(res.status).toBe(200);
+      return res.json();
+    };
+    try {
+      expect(await post("/api/rescan")).toMatchObject({ total: 50 });
+      rmSync(join(s.musicDir, "dup"), { recursive: true });
+      expect(await post("/api/rescan")).toEqual({ added: 0, removed: 0, total: 50, held: 30, heldFolders: ["dup"], heldWithCopy: 20 });
+      expect(await post("/api/admin/check")).toMatchObject({ held: 30, heldFolders: ["dup"], heldWithCopy: 20 });
+      // A confirmation for fewer songs than are held changes nothing.
+      expect(await post("/api/rescan?confirmRemove=29")).toMatchObject({ removed: 0, total: 50, held: 30 });
+      expect(await post("/api/rescan?confirmRemove=30")).toEqual({ added: 0, removed: 10, total: 20 });
+      expect(await post("/api/admin/check")).toMatchObject({ held: 0, heldFolders: [], heldWithCopy: 0 });
+      const ids = Array.from({ length: 30 }, (_, i) => trackId(`dup/${i}.wav`));
+      const r = (await (await s.app.request(`/api/tracks/gone?ids=${ids.join(",")}`)).json()) as {
+        gone: string[];
+        moved: Record<string, string>;
+      };
+      expect(r.gone.sort()).toEqual(ids.slice(20).sort());
+      expect(r.moved).toEqual(Object.fromEntries(ids.slice(0, 20).map((id, i) => [id, trackId(`keep/${i}.wav`)])));
+    } finally {
+      s.close();
+    }
+  });
+
   test("two identical copies: deleting one of two missing twins is not guessed", async () => {
     const same = wav({ title: "Twin" }, 557);
     const s = testServer({ "x/1.wav": same, "x/2.wav": same, "y/3.wav": same, "keep.wav": wav({ title: "K" }, 444) });
