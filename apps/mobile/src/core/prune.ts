@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { ApiError, apiGet, queryString, type ApiTrack } from './api';
 import { getDb, writeTx } from './db';
 import { ripenGone } from './gone-grace';
+import { pruneGate } from './prune-gate';
 import { dropQueuedDownloads, queuedDownloadKeys, renameQueuedDownloads } from './downloads';
 import { removeTrackReferences, rewriteTrackReferences } from './library';
 import { libIndex, loadLibIndexAgain } from './lib-index';
@@ -240,7 +241,10 @@ export function pruneGoneTracks(force = false): Promise<number> {
 
 let started = false;
 
-/** Prunes now, on return to the foreground, on a server change, and after a streamed track fails to play. */
+/**
+ * Prunes now, on return to the foreground, on a server change, and after a streamed song fails to play — once the
+ * server has shown it answers again (`pruneGate`).
+ */
 export function startPruning(): void {
   if (started) return;
   started = true;
@@ -251,7 +255,10 @@ export function startPruning(): void {
   settingsStore.subscribe((s, prev) => {
     if (s.serverUrl !== prev.serverUrl || s.accessToken !== prev.accessToken) void pruneGoneTracks(true);
   });
+  let armed = false;
   playerStore.subscribe((s, prev) => {
-    if (s.errorId !== prev.errorId && s.current?.origin === 'remote' && !s.current.localUri) void pruneGoneTracks(true);
+    const gate = pruneGate(armed, s, prev);
+    armed = gate.armed;
+    if (gate.runNow) void pruneGoneTracks(true);
   });
 }
