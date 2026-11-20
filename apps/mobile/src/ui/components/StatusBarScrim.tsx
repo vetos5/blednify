@@ -51,7 +51,7 @@ export function StatusBarScrim({ scrollY }: { scrollY: SharedValue<number> }) {
       aria-hidden
       style={[styles.scrim, { height }, shown]}>
       <LinearGradient
-        colors={[withAlpha(colors.bg, 0.92), withAlpha(colors.bg, 0.8), withAlpha(colors.bg, 0)]}
+        colors={[withAlpha(colors.bg, 0.97), withAlpha(colors.bg, 0.88), withAlpha(colors.bg, 0)]}
         locations={[0, insets.top / height, 1]}
         style={styles.fill}
       />
