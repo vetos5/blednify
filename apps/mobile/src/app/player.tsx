@@ -10,6 +10,7 @@ import {
 import Animated, {
   Easing,
   interpolate,
+  useAnimatedReaction,
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
@@ -134,19 +135,30 @@ function useWebPullToDismiss(
 /** Immersive screen over artwork: stays dark in light themes. */
 export default function PlayerScreen() {
   const wide = useIsWide();
+  const [sheetDown, setSheetDown] = useState(false);
   return (
     <ForceDark>
-      <ImmersiveStatusBar />
-      {wide ? <DesktopNowPlaying /> : <PlayerScreenContent />}
+      <ImmersiveStatusBar released={sheetDown} />
+      {wide ? <DesktopNowPlaying /> : <PlayerScreenContent onSheetDownChange={setSheetDown} />}
     </ForceDark>
   );
 }
 
-function PlayerScreenContent() {
+function PlayerScreenContent({ onSheetDownChange }: { onSheetDownChange: (down: boolean) => void }) {
   const styles = useStyles();
   const current = usePlayer((s) => s.current);
   const { height: screenH } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const y = useSharedValue(0);
+  // Once the sheet's top edge passes the middle of the status bar the clock sits over the page beneath, so the
+  // player's light bar hands back to the theme's (it was white on white while dismissing over a Daylight page).
+  const releaseAt = Math.max(insets.top / 2, 1);
+  useAnimatedReaction(
+    () => y.get() > releaseAt,
+    (down, before) => {
+      if (down !== (before ?? false)) scheduleOnRN(onSheetDownChange, down);
+    },
+  );
   const scrollY = useSharedValue(0);
   const listDrag = useSharedValue(false);
   const scrollRef = useRef<Animated.ScrollView>(null);
