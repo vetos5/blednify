@@ -17,6 +17,11 @@ export const SIDEBAR_WIDTH = 248;
 export const SIDEBAR_RAIL_WIDTH = 72;
 export const PANEL_WIDTH = 352;
 export const PLAYER_BAR_HEIGHT = 84;
+/**
+ * The phone layout's top row below the status bar: the back / close button (44) and the gap above it (ScreenHeader,
+ * FloatingBack, the player's close button). Overlays that drop from the top start below it so they never cover Back.
+ */
+export const HEADER_ROW_HEIGHT = 48;
 
 const isWeb = Platform.OS === 'web';
 

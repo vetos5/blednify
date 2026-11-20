@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { usePlayer } from '@/core';
 
-import { PLAYER_BAR_HEIGHT, useIsWide } from '../layout';
+import { HEADER_ROW_HEIGHT, PLAYER_BAR_HEIGHT, useIsWide } from '../layout';
 import { dismissToast, showToast, useOverlay, type ToastKind } from '../overlay';
 import { makeStyles, radius, space, useColors } from '../theme';
 import { Icon, type IconName } from './Icon';
@@ -24,12 +24,13 @@ export function ToastHost() {
   const colors = useColors();
   const toast = useOverlay((s) => s.toast);
   const insets = useSafeAreaInsets();
-  // Wide layout: toasts rise from above the player bar, out of the way of page headers.
+  // Wide layout: toasts rise from above the player bar, out of the way of page headers. Phone layout: they drop in
+  // just below the header row, so Back stays visible and tappable while one is up (it used to sit over the chevron).
   const wide = useIsWide();
   usePlaybackErrorToasts();
   return (
     <TopLayer>
-      <View pointerEvents="box-none" style={[styles.host, wide ? { bottom: PLAYER_BAR_HEIGHT + space.lg } : { top: insets.top + space.sm }]}>
+      <View pointerEvents="box-none" style={[styles.host, wide ? { bottom: PLAYER_BAR_HEIGHT + space.lg } : { top: insets.top + HEADER_ROW_HEIGHT + space.xs }]}>
         {toast ? (
           <Animated.View
             key={toast.id}
