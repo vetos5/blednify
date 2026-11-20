@@ -141,4 +141,4 @@ A credit is split into artists on "feat." / "ft." / "featuring", and on commas w
 admin typed it, or when one of its parts is an artist on its own elsewhere (so "Tyler, The Creator" stays one artist).
 The song shows on every credited artist's page. Merges and renames live in the database; files are never retagged.
 
-Errors: `{ error }` with 4xx/5xx. CORS enabled for all origins (GET).
+Errors: `{ error }` with 4xx/5xx. CORS: every origin, every method above (`Authorization`, `X-Library-Key` and `Range` allowed; `Content-Range`, `ETag` exposed). Outside `/api`, the server serves the web app from `WEB_DIR` (`index.html` and `/sw.js` with `Cache-Control: no-cache`).
