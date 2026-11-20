@@ -4,7 +4,7 @@ import { pruneGate, type PruneGateState } from '../src/core/prune-gate';
 
 const streamed = { origin: 'remote', localUri: null };
 const downloaded = { origin: 'remote', localUri: 'file:///a.mp3' };
-const base: PruneGateState = { errorId: 0, isPlaying: false, retrying: false, current: streamed };
+const base: PruneGateState = { errorId: 0, isPlaying: false, isBuffering: false, retrying: false, current: streamed };
 
 describe('pruneGate', () => {
   test('a streamed song failing arms the check; it runs once a streamed song plays', () => {
@@ -39,5 +39,13 @@ describe('pruneGate', () => {
 
   test('still retrying while it plays is not proof', () => {
     expect(pruneGate(true, { ...base, isPlaying: true, retrying: true }, base)).toEqual({ armed: true, runNow: false });
+  });
+
+  test('loading the next song (playing but still buffering) is not proof; the first real playing state is', () => {
+    const failed = { ...base, errorId: 1 };
+    const loading = { ...failed, isPlaying: true, isBuffering: true };
+    expect(pruneGate(true, loading, failed)).toEqual({ armed: true, runNow: false });
+    const playing = { ...loading, isBuffering: false };
+    expect(pruneGate(true, playing, loading)).toEqual({ armed: false, runNow: true });
   });
 });
