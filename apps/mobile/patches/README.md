@@ -56,3 +56,16 @@ checks scrolling; neither reproduces iOS touch inertia. Activating the standalon
 branch in a test response is a layout simulation, not an installed iPhone app. Real status
 bar/home-indicator insets, keyboard zoom, background audio and frame pacing still need
 an iPhone check.
+
+# expo-router: imperative router after an activity recreation
+
+`expo-router@58.0.30.patch` (version pinned for the same reason) fixes the cleanup of
+`ImperativeRoutingQueueBridge`. When Android recreates the activity (system font size or display
+size changed while the app was open), the new React root binds the shared `router` before the old
+root unmounts, and the old root's cleanup then reset it to the "unbound" router: every later
+`router.push` threw "The imperative router is unavailable before the first render has finished",
+which crashed the app on the next tap that navigates. The cleanup now unbinds only the router it
+bound itself.
+
+Check after changing the patch or upgrading expo-router: open the app, change the system font size,
+come back, and open Settings → Appearance (no crash, the page opens).
