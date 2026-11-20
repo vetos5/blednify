@@ -199,7 +199,9 @@ function lyricsQuery(track: AppTrack | null, base: string, online: boolean) {
   return {
     queryKey: ['lyrics', track?.key ?? '', track?.origin === 'remote' ? base : online] as const,
     queryFn: ({ signal }: { signal: AbortSignal }) => loadLyrics(track!, base, signal),
-    staleTime: 60 * 60_000,
+    // Server lyrics are asked again after a minute (a cheap 304 when unchanged), so a .lrc added on the server
+    // shows up the next time the song's lyrics are opened. Imported tracks keep their own rules (`loadLyrics`).
+    staleTime: track?.origin === 'remote' ? 60_000 : 60 * 60_000,
     gcTime: 60 * 60_000,
     retry: 1,
   };

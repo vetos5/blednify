@@ -70,6 +70,24 @@ describe("GET /api/tracks/:id/lyrics", () => {
   test("nothing found (online off) → empty lyrics, not an error", async () => {
     expect(await lyricsOf(NONE)).toEqual({ synced: null, plain: null, instrumental: false, source: null });
   });
+  test("revalidated, not cached for an hour: unchanged → 304, a .lrc added later → the new lyrics", async () => {
+    const LATE = "Artist/Album/05 - Late.wav";
+    srv.write(LATE, wav({ title: "Late", artist: "Artist", album: "Album" }));
+    await srv.ctx.scanner.scan();
+    const url = `/api/tracks/${trackId(LATE)}/lyrics`;
+    const first = await srv.app.request(url);
+    expect(first.headers.get("cache-control")).toBe("public, no-cache");
+    const etag = first.headers.get("etag");
+    expect(etag).toMatch(/^"ly-/);
+    expect(((await first.json()) as Lyrics).source).toBeNull();
+    const same = await srv.app.request(url, { headers: { "If-None-Match": etag! } });
+    expect(same.status).toBe(304);
+    srv.write("Artist/Album/05 - Late.lrc", Buffer.from("[00:00.10]Added later\n"));
+    const fresh = await srv.app.request(url, { headers: { "If-None-Match": etag! } });
+    expect(fresh.status).toBe(200);
+    expect(fresh.headers.get("etag")).not.toBe(etag);
+    expect(((await fresh.json()) as Lyrics).plain).toBe("Added later");
+  });
   test("unknown track → 404", async () => {
     expect((await srv.app.request("/api/tracks/0000000000000000/lyrics")).status).toBe(404);
   });

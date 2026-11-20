@@ -67,7 +67,7 @@ type Lyrics = {
 | GET | `/api/tracks/lookup?ids=a,b,…` | `{ items: Track[] }` — current info of the given ids (max 500; unknown ids left out), so the app can refresh its stored copies |
 | GET | `/api/tracks/:id` | `Track` |
 | GET | `/api/tracks/:id/stream` | audio bytes; MUST support `Range` (206), `Accept-Ranges`, `Content-Length`, correct `Content-Type`, `ETag`, `Cache-Control: public, max-age=31536000, immutable` (`private, …` when `LISTEN_TOKEN` is set) |
-| GET | `/api/tracks/:id/lyrics` | `Lyrics` (sidecar `.lrc`/`.txt` → embedded tag → LRCLIB unless `LYRICS_ONLINE=0`); `200` with nulls when none |
+| GET | `/api/tracks/:id/lyrics` | `Lyrics` (sidecar `.lrc`/`.txt` → embedded tag → LRCLIB unless `LYRICS_ONLINE=0`); `200` with nulls when none; `Cache-Control: no-cache` + `ETag`, so clients revalidate (`304`) and see lyrics added later |
 | GET | `/api/tracks/:id/artwork?size=512` | `image/jpeg\|png` embedded cover (404 if none, or if the cover can't be decoded); long cache (`private` when `LISTEN_TOKEN` is set). Sizes snap to buckets 64/128/256/512/1024 and share one `ETag` per bucket |
 | GET | `/api/albums?q=&limit=&offset=` | `Page<Album>` |
 | GET | `/api/albums/:id` | `Album & { tracks: Track[] }` (sorted disc, track); an album id from before a merge/rename/edit returns the current album |

@@ -329,8 +329,15 @@ export function createApp(ctx: AppContext): Hono {
 
   app.get("/api/tracks/:id/lyrics", async (c) => {
     const row = lib.trackRow(param(c)) ?? fail(404, "track not found");
-    c.header("Cache-Control", listenDigest ? "private, max-age=3600" : "public, max-age=3600");
-    return c.json(await lyrics.get(row, join(config.musicDir, row.path)));
+    // Revalidated every time (a 304 when unchanged), so a .lrc added on the server, or lyrics found after a miss,
+    // reach the phone on its next look instead of up to an hour later.
+    const body = JSON.stringify(await lyrics.get(row, join(config.musicDir, row.path)));
+    const etag = `"ly-${Bun.hash(body).toString(36)}"`;
+    c.header("Cache-Control", listenDigest ? "private, no-cache" : "public, no-cache");
+    c.header("ETag", etag);
+    const inm = c.req.header("if-none-match");
+    if (inm && inm.split(",").some((t) => t.trim().replace(/^W\//, "") === etag)) return c.body(null, 304);
+    return c.body(body, 200, { "Content-Type": "application/json" });
   });
 
   // Lets the app verify an admin token and learn the upload limit. POST, like every other admin route, so a
