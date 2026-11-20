@@ -79,7 +79,7 @@ export default function AppearanceScreen() {
           ACCENT
         </Text>
         <View style={styles.swatches}>
-          <Swatch color={preset.accent} selected={pref.accent === null} label="Theme default" onPress={() => pickAccent(null)} badge="T" />
+          <Swatch color={preset.accent} selected={pref.accent === null} label="Accent: Theme default" onPress={() => pickAccent(null)} badge="T" />
           {ACCENT_SWATCHES.filter((c) => c !== preset.accent).map((c) => (
             <Swatch key={c} color={c} selected={pref.accent === c} label={`Accent: ${SWATCH_NAMES[c] ?? c}`} onPress={() => pickAccent(c)} />
           ))}
@@ -95,7 +95,7 @@ export default function AppearanceScreen() {
           BACKGROUND
         </Text>
         <View style={styles.swatches}>
-          <Swatch color={preset.bg} selected={pref.background === null} label="Theme default" onPress={() => pickBackground(null)} badge="T" />
+          <Swatch color={preset.bg} selected={pref.background === null} label="Background: Theme default" onPress={() => pickBackground(null)} badge="T" />
           {BACKGROUND_SWATCHES.filter((c) => c !== preset.bg).map((c) => (
             <Swatch key={c} color={c} selected={pref.background === c} label={`Background: ${SWATCH_NAMES[c] ?? c}`} onPress={() => pickBackground(c)} />
           ))}
