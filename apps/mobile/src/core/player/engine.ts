@@ -813,7 +813,35 @@ function retryAfterNetworkError() {
   if (r.timer) clearTimeout(r.timer);
   r.timer = null;
   r.attempt++;
-  load(index, true, progressStore.getState().positionMs);
+  if (!retryInPlace()) load(index, true, progressStore.getState().positionMs);
+}
+
+/**
+ * Android: retry the current song where it stopped without rebuilding the window. After a playback error ExoPlayer
+ * keeps its playlist, slot and position and sits idle; the patched `editWindow` re-prepares an idle player, so an
+ * empty edit batch does just that. The lock-screen session, its metadata and buttons, and the songs queued ahead
+ * stay as they are, instead of being cleared and re-added on every attempt of an outage. False when the player
+ * can't be reused (web, a player marked for recreation after a stall, or native is no longer on this song's slot);
+ * the caller then reloads.
+ */
+function retryInPlace(): boolean {
+  const cur = entries[index];
+  if (Platform.OS === 'web' || !nat || natBroken || awaitingClear || !cur || natUids[natCur] !== cur.uid) return false;
+  try {
+    if (nat.trackCount !== natUids.length || nat.currentIndex !== natCur) return false;
+  } catch {
+    return false; // released natively
+  }
+  clearWatchdog();
+  advancingTo = null;
+  pendingSeekMs = null;
+  started = false;
+  natReady = true;
+  lastCommandAt = Date.now();
+  editPlaylist(nat, [], null);
+  startNative();
+  armWatchdog();
+  return true;
 }
 
 /** The next entry after the current one that plays without the network (downloaded or on-device), if any. */
@@ -921,11 +949,14 @@ function onPlaybackError(message: string, network = false, recreate = false, sto
   clearWatchdog();
   // Android: the next `load()` rebuilds the window in the same player (the patched native side re-prepares it), so
   // the lock-screen session stays attached and keeps its next/previous buttons and seek bar. A new player is made
-  // only when it fails again before playing, in case it is what is stuck. The web backend is always recreated.
-  natBroken = recreate || Platform.OS === 'web' || errorsSincePlaying++ > 0;
+  // only when it fails again before playing, in case it is what is stuck. A dropped connection doesn't count
+  // towards that: its retries re-prepare the same player in place (`retryInPlace`), however many it takes, and a
+  // player that really hangs is caught by the watchdog (`recreate`). The web backend is always recreated.
+  const retrying = network && resume;
+  natBroken = recreate || Platform.OS === 'web' || (!retrying && errorsSincePlaying++ > 0);
   natReady = false;
   pendingSeekMs = null;
-  if (network && resume) {
+  if (retrying) {
     waitForNetwork(message);
     return;
   }
