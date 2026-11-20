@@ -1,8 +1,15 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useState, type ReactNode } from 'react';
 import { Platform, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
-import Animated, { interpolate, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import Animated, {
+  interpolate,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useSharedValue,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { scheduleOnRN } from 'react-native-worklets';
 
 import { makeStyles, useColors, withAlpha } from '../theme';
 import { Backdrop } from './Backdrop';
@@ -40,6 +47,10 @@ export function useScrimScroll(): {
  * from reading as a hard line. Decorative and touch-transparent. Native only: the web app has no status bar.
  *
  * Render it as a direct child of the screen root (the same box the background fills), so the copy lines up.
+ *
+ * The copy is mounted only while something is scrolled under the clock (it is fully transparent at the top anyway),
+ * so a screen at rest, and the player on a song change, never pay for a second background (on the player a second
+ * full-size blurred cover).
  */
 export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<number>; surface?: ReactNode }) {
   const styles = useStyles();
@@ -47,6 +58,13 @@ export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<numb
   const insets = useSafeAreaInsets();
   // The background is laid out against the whole screen root; its copy must be too, or a glow or cover would shift.
   const [rootH, setRootH] = useState(0);
+  const [scrolled, setScrolled] = useState(false);
+  useAnimatedReaction(
+    () => scrollY.get() > 0,
+    (now, before) => {
+      if (now !== before) scheduleOnRN(setScrolled, now);
+    },
+  );
   const shown = useAnimatedStyle(() => ({ opacity: interpolate(scrollY.get(), [0, FADE_PX], [0, 1], 'clamp') }));
   if (Platform.OS === 'web' || insets.top <= 0) return null;
   return (
@@ -57,7 +75,7 @@ export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<numb
       aria-hidden
       style={styles.root}
       onLayout={(e) => setRootH(Math.round(e.nativeEvent.layout.height))}>
-      {rootH > 0 ? (
+      {rootH > 0 && scrolled ? (
         <Animated.View style={[styles.band, { height: insets.top + TAIL_PX }, shown]}>
           <View style={[styles.slice, { height: insets.top }]}>
             <View style={[styles.slice, { height: rootH, backgroundColor: colors.bg }]}>{surface ?? <Backdrop still />}</View>
