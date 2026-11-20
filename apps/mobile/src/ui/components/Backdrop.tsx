@@ -280,14 +280,14 @@ function NightSky({ colors, animate }: { colors: Palette; animate: boolean }) {
 /**
  * Theme decoration behind a screen's content (star skies, a soft accent glow). Render it as the first child of
  * a screen's root view; it draws nothing for themes without a backdrop. Animates only on the focused screen and
- * stays still when the system asks for reduced motion.
+ * stays still when the system asks for reduced motion, or with `still` (a copy, such as the status-bar band).
  */
-export function Backdrop() {
+export function Backdrop({ still = false }: { still?: boolean }) {
   const colors = useColors();
   const focused = useIsFocused();
   const reduceMotion = useReducedMotion();
   if (colors.backdrop === 'none') return null;
-  const animate = focused && !reduceMotion;
+  const animate = !still && focused && !reduceMotion;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       {colors.backdrop === 'stars' ? (

@@ -232,8 +232,14 @@ function PlayerScreenContent() {
           </View>
         </GestureDetector>
       )}
-      {/* Over everything that scrolls: cover art, the Lyrics card and the rest slide under the clock otherwise. */}
-      {page ? <StatusBarScrim scrollY={scrollY} /> : null}
+      {/* Over everything that scrolls: cover art, the Lyrics card and the rest slide under the clock otherwise. The
+          band is the backdrop's own (art-tinted) top, not a flat dark slab over it. */}
+      {page ? (
+        <StatusBarScrim
+          scrollY={scrollY}
+          surface={<Backdrop uri={current?.artworkUri ?? null} />}
+        />
+      ) : null}
     </Animated.View>
   );
 }
