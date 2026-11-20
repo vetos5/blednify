@@ -14,6 +14,7 @@ import { useIsWide } from '../layout';
 import { nav } from '../nav';
 import { makeStyles, MINI_PLAYER_HEIGHT, radius, space, useColors } from '../theme';
 import { Artwork } from './Artwork';
+import { Icon } from './Icon';
 import { IconButton } from './IconButton';
 import { Text } from './Text';
 
@@ -113,7 +114,10 @@ export function MiniPlayer() {
               hitSlop={8}
               onPress={player.togglePlay}
               style={styles.spinner}>
-              <ActivityIndicator size="small" color={colors.text} />
+              {/* The pause stays visible inside the ring: an outage can retry for minutes, and a bare spinner
+                  hid the only way to stop it. */}
+              <ActivityIndicator size="large" color={colors.textSecondary} style={styles.ring} />
+              <Icon name="pause" size={16} color={colors.text} />
             </Pressable>
           ) : (
             <IconButton icon={isPlaying ? 'pause' : 'play'} label={isPlaying ? 'Pause' : 'Play'} size={26} haptic onPress={player.togglePlay} />
@@ -205,6 +209,7 @@ const useStyles = makeStyles((colors) => ({
   content: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.md, minWidth: 0 },
   meta: { flex: 1, minWidth: 0 },
   spinner: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  ring: { position: 'absolute' },
   track: {
     position: 'absolute',
     bottom: 0,

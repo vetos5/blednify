@@ -485,7 +485,11 @@ function Transport() {
         }}
         style={styles.playButton}>
         {isBuffering && !isPlaying ? (
-          <ActivityIndicator color={colors.onAccent} />
+          // Pause inside the ring: tapping stops the load or a network retry.
+          <>
+            <ActivityIndicator size="large" color={colors.onAccent} style={styles.playRing} />
+            <Icon name="pause" size={22} color={colors.onAccent} />
+          </>
         ) : (
           <Icon name={isPlaying ? 'pause' : 'play'} size={34} color={colors.onAccent} />
         )}
@@ -558,6 +562,7 @@ const useStyles = makeStyles((colors) => ({
     letterSpacing: 1,
     fontWeight: '700',
   },
+  playRing: { position: 'absolute', transform: [{ scale: 1.5 }] },
   playButton: {
     width: 76,
     height: 76,
