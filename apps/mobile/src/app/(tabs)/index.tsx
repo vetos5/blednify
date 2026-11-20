@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { useNetworkState } from 'expo-network';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -88,6 +89,8 @@ export default function HomeScreen() {
   const hasLibrary = localTracks.length > 0 || recent.length > 0 || liked.length > 0;
   const showWelcome = !hasServer && !hasLibrary;
   const showOffline = hasServer && !server.isLoading && !server.online && fresh.length === 0;
+  // The phone itself has no connection: the server's address is not what needs fixing.
+  const phoneOffline = useNetworkState().isConnected === false;
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -153,10 +156,8 @@ export default function HomeScreen() {
               <View style={[styles.notice, glass, { marginHorizontal: gutter }]}>
                 <Icon name="cloud-offline-outline" size={22} color={colors.textSecondary} />
                 <View style={styles.noticeText}>
-                  <Text variant="bodyStrong">Server unreachable</Text>
-                  <Text variant="caption">
-                    {fileStorageSupported ? 'Playing from your phone. Check the address in Settings.' : 'Check the server address in Settings.'}
-                  </Text>
+                  <Text variant="bodyStrong">{phoneOffline ? 'You’re offline' : 'Server unreachable'}</Text>
+                  <Text variant="caption">{offlineCaption(phoneOffline)}</Text>
                 </View>
                 <IconButton icon="chevron-forward" label="Open settings" onPress={nav.settings} />
               </View>
@@ -346,6 +347,15 @@ function QuickTile({
   );
 }
 
+
+/** Caption of the Home notice when the server doesn't answer. */
+function offlineCaption(phoneOffline: boolean): string {
+  if (phoneOffline)
+    return fileStorageSupported
+      ? 'Your downloads and on-phone music still play. Server songs come back when you’re online.'
+      : 'Your playlists and likes are here. Songs play again when you’re back online.';
+  return fileStorageSupported ? 'Playing from your phone. Check the address in Settings.' : 'Check the server address in Settings.';
+}
 const useStyles = makeStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.bg },
   fill: { flex: 1 },
