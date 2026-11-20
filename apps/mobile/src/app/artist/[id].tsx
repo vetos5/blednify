@@ -20,6 +20,7 @@ import { PrimaryButton } from '@/ui/components/PrimaryButton';
 import { ServerUnreachable } from '@/ui/components/ServerUnreachable';
 import { Rail, useRailCardWidth } from '@/ui/components/Rail';
 import { FloatingBack } from '@/ui/components/ScreenHeader';
+import { StatusBarScrim, useScrimScroll } from '@/ui/components/StatusBarScrim';
 import { SectionHeader } from '@/ui/components/SectionHeader';
 import { openTrackActions } from '@/ui/components/TrackActions';
 import { TrackRow } from '@/ui/components/TrackRow';
@@ -37,6 +38,7 @@ export default function ArtistScreen() {
   const params = useLocalSearchParams<{ id: string; origin?: string }>();
   const origin = parseOrigin(params.origin);
   const insets = useSafeAreaInsets();
+  const { scrollY, onScroll } = useScrimScroll();
   const chromeInset = useChromeInset('detail');
   const cardW = useRailCardWidth();
   const { artist, albums, tracks, isLoading, unreachable, retry } = useArtist(params.id, origin);
@@ -75,6 +77,8 @@ export default function ArtistScreen() {
     <ChromeHost overlay={<DockedMiniPlayer />}>
       <Backdrop />
       <FlashList
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         data={tracks}
         keyExtractor={(t) => t.key}
         contentContainerStyle={{ paddingBottom: insets.bottom + space.xl + chromeInset }}
@@ -127,6 +131,7 @@ export default function ArtistScreen() {
         ListEmptyComponent={isLoading ? <Loading /> : null}
         renderItem={({ item, index }) => <TrackRow track={item} index={index} onPress={play} onMore={onMore} />}
       />
+      <StatusBarScrim scrollY={scrollY} />
       <FloatingBack />
       {artist.origin === 'remote' ? <OpenInApp path={`/artist/${params.id}`} /> : null}
     </ChromeHost>

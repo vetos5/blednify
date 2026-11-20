@@ -1,6 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { Platform } from 'react-native';
-import Animated, { interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
+import { useCallback } from 'react';
+import { Platform, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import Animated, { interpolate, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { makeStyles, useColors, withAlpha } from '../theme';
@@ -9,6 +10,25 @@ import { makeStyles, useColors, withAlpha } from '../theme';
 const FADE_PX = 24;
 /** Below the status bar the gradient runs on this far, so content fades out instead of meeting a hard edge. */
 const TAIL_PX = 20;
+
+/**
+ * Scroll wiring for lists that can't take a Reanimated scroll handler (FlashList): a plain onScroll that feeds the
+ * scrim. Only the first FADE_PX matter, so past that nothing is written and a long scroll costs no extra work.
+ */
+export function useScrimScroll(): {
+  scrollY: SharedValue<number>;
+  onScroll: (e: NativeSyntheticEvent<NativeScrollEvent>) => void;
+} {
+  const scrollY = useSharedValue(0);
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = Math.min(Math.max(e.nativeEvent.contentOffset.y, 0), FADE_PX);
+      if (scrollY.get() !== y) scrollY.set(y);
+    },
+    [scrollY],
+  );
+  return { scrollY, onScroll };
+}
 
 /**
  * Keeps the clock and status icons readable over scrolled content: a gradient from the screen's own background to

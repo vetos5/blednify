@@ -15,6 +15,7 @@ import { openPlaylistActions } from '@/ui/components/PlaylistActions';
 import { PlaylistArtwork } from '@/ui/components/PlaylistArtwork';
 import { PrimaryButton } from '@/ui/components/PrimaryButton';
 import { FloatingBack } from '@/ui/components/ScreenHeader';
+import { StatusBarScrim, useScrimScroll } from '@/ui/components/StatusBarScrim';
 import { openTrackActions } from '@/ui/components/TrackActions';
 import { TrackRow, TrackTableHeader } from '@/ui/components/TrackRow';
 import { humanDuration, plural } from '@/ui/format';
@@ -28,6 +29,7 @@ export default function PlaylistScreen() {
   const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
+  const { scrollY, onScroll } = useScrimScroll();
   const chromeInset = useChromeInset('detail');
   const { playlist, tracks } = usePlaylist(id);
   const settled = useAfter(500);
@@ -64,6 +66,8 @@ export default function PlaylistScreen() {
     <ChromeHost overlay={<DockedMiniPlayer />}>
       <Backdrop />
       <FlashList
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         data={tracks}
         keyExtractor={(t, i) => `${i}:${t.key}`}
         contentContainerStyle={{ paddingBottom: insets.bottom + space.xl + chromeInset }}
@@ -106,6 +110,7 @@ export default function PlaylistScreen() {
         }
         renderItem={({ item, index }) => <TrackRow track={item} index={index} onPress={play} onMore={onMore} subtitle="artist-album" />}
       />
+      <StatusBarScrim scrollY={scrollY} />
       <FloatingBack />
     </ChromeHost>
   );

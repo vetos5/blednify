@@ -18,6 +18,7 @@ import { PrimaryButton } from '@/ui/components/PrimaryButton';
 import { ServerUnreachable } from '@/ui/components/ServerUnreachable';
 import { openShare } from '@/ui/components/ShareSheet';
 import { FloatingBack } from '@/ui/components/ScreenHeader';
+import { StatusBarScrim, useScrimScroll } from '@/ui/components/StatusBarScrim';
 import { openTrackActions } from '@/ui/components/TrackActions';
 import { TrackRow, TrackTableHeader } from '@/ui/components/TrackRow';
 import { humanDuration, plural } from '@/ui/format';
@@ -35,6 +36,7 @@ export default function AlbumScreen() {
   const params = useLocalSearchParams<{ id: string; origin?: string }>();
   const origin = parseOrigin(params.origin);
   const insets = useSafeAreaInsets();
+  const { scrollY, onScroll } = useScrimScroll();
   const chromeInset = useChromeInset('detail');
   // What's cached draws on the first frame; anything fetched mid-slide waits until the push has finished.
   const { album, tracks, isLoading, unreachable, retry } = useHeldDuringTransition(useAlbum(params.id, origin));
@@ -53,6 +55,8 @@ export default function AlbumScreen() {
       .join(' · ');
     body = (
       <FlashList
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         data={tracks}
         keyExtractor={(t) => t.key}
         contentContainerStyle={{ paddingBottom: insets.bottom + space.xl + chromeInset }}
@@ -130,6 +134,7 @@ export default function AlbumScreen() {
     <ChromeHost overlay={<DockedMiniPlayer />}>
       <Backdrop />
       {body}
+      <StatusBarScrim scrollY={scrollY} />
       <FloatingBack />
       {origin === 'remote' && album ? <OpenInApp path={`/album/${params.id}`} /> : null}
     </ChromeHost>
