@@ -28,29 +28,40 @@ const UNMOUNT_AFTER_MS = 1500;
 /**
  * Scroll wiring for lists that can't take a Reanimated scroll handler (FlashList): a plain onScroll that feeds the
  * scrim. Only the first FADE_PX matter, so past that nothing is written and a long scroll costs no extra work.
+ *
+ * `follow` also tracks the offset itself up to that many px (`offsetY`), for a band that copies a background which
+ * scrolls with the content (a detail page's cover glow): past it the copy no longer changes, so writes stop again.
  */
-export function useScrimScroll(): {
+export function useScrimScroll(follow = 0): {
   scrollY: SharedValue<number>;
+  offsetY: SharedValue<number>;
   onScroll: (e: NativeSyntheticEvent<NativeScrollEvent>) => void;
 } {
   const scrollY = useSharedValue(0);
+  const offsetY = useSharedValue(0);
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const y = Math.min(Math.max(e.nativeEvent.contentOffset.y, 0), FADE_PX);
+      const raw = Math.max(e.nativeEvent.contentOffset.y, 0);
+      const y = Math.min(raw, FADE_PX);
       if (scrollY.get() !== y) scrollY.set(y);
+      if (follow > 0) {
+        const o = Math.min(raw, follow);
+        if (offsetY.get() !== o) offsetY.set(o);
+      }
     },
-    [scrollY],
+    [scrollY, offsetY, follow],
   );
-  return { scrollY, onScroll };
+  return { scrollY, offsetY, onScroll };
 }
 
 /**
  * Keeps the clock and status icons readable over scrolled content. The band behind the status bar is the screen's own
  * background drawn again (colors.bg plus the theme Backdrop, or the `surface` passed in, such as the player's
- * art-tinted cover) and clipped to the status bar, so it is opaque — nothing ghosts behind the clock — yet matches
- * what is around it instead of laying a flat slab over a star sky, glow or cover. It fades in as soon as anything
- * scrolls under it (invisible at the top, so the first frame looks as designed), and a short soft tail keeps the cut
- * from reading as a hard line. Decorative and touch-transparent. Native only: the web app has no status bar.
+ * art-tinted cover or a detail page's cover glow at its scroll offset) and clipped to the status bar, so it is opaque
+ * (nothing ghosts behind the clock) yet matches what is around it instead of laying a flat slab over a star sky, glow
+ * or cover. It fades in as soon as anything scrolls under it (invisible at the top, so the first frame looks as
+ * designed), and a short soft tail keeps the cut from reading as a hard line. Decorative and touch-transparent.
+ * Native only: the web app has no status bar.
  *
  * Render it as a direct child of the screen root (the same box the background fills), so the copy lines up.
  *

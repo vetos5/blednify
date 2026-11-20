@@ -1,12 +1,14 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import type { ReactNode } from 'react';
 import { Platform, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Pressable } from '../desktop/web';
 import { useGutter, useIsWide } from '../layout';
 import { makeStyles, radius, space, useColors, withAlpha } from '../theme';
 import { ArtworkBackdrop } from './Artwork';
+import { Backdrop } from './Backdrop';
 import { PrimaryButton } from './PrimaryButton';
 import { Text } from './Text';
 
@@ -51,20 +53,7 @@ export function DetailHeader({
   const art = wide ? 232 : Math.min(240, Math.round(width * 0.6));
   const disabled = !onPlay;
 
-  const backdrop = (
-    <View style={[styles.backdrop, colors.backdrop !== 'none' && fadeOut]} pointerEvents="none">
-      <ArtworkBackdrop uri={backdropUri} blurRadius={60} transition={200} />
-      <LinearGradient
-        colors={
-          backdropUri
-            ? [withAlpha(colors.bg, 0.35), withAlpha(colors.bg, 0.75), colors.bg]
-            : [colors.isLight ? colors.accentSoft : colors.accentDeep, withAlpha(colors.bg, 0.6), colors.bg]
-        }
-        locations={[0, 0.55, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-    </View>
-  );
+  const backdrop = <DetailGlow uri={backdropUri} />;
 
   if (wide) {
     // Wide layout: cover beside the titles, buttons sized to their labels.
@@ -144,6 +133,49 @@ export function DetailHeader({
   );
 }
 
+/** Height of the cover glow at the top of a detail page. */
+export const DETAIL_GLOW_HEIGHT = 460;
+
+/**
+ * The cover-tinted glow behind the top of a detail page: the blurred cover (or an accent wash without one) fading
+ * into the theme background. DetailHeader draws it inside the list, so it scrolls with the content.
+ */
+function DetailGlow({ uri }: { uri: string | null | undefined }) {
+  const styles = useStyles();
+  const colors = useColors();
+  return (
+    <View style={[styles.backdrop, colors.backdrop !== 'none' && fadeOut]} pointerEvents="none">
+      <ArtworkBackdrop uri={uri} blurRadius={60} transition={200} />
+      <LinearGradient
+        colors={
+          uri
+            ? [withAlpha(colors.bg, 0.35), withAlpha(colors.bg, 0.75), colors.bg]
+            : [colors.isLight ? colors.accentSoft : colors.accentDeep, withAlpha(colors.bg, 0.6), colors.bg]
+        }
+        locations={[0, 0.55, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+    </View>
+  );
+}
+
+/**
+ * The page background of a detail page as it stands at a scroll offset: the theme backdrop plus the header's glow
+ * moved up by `offsetY` (the list's scroll offset, clamped to the glow height). StatusBarScrim draws it as its band,
+ * so the band under the clock continues the glow pixel for pixel instead of laying a flat slab over it.
+ */
+export function DetailGlowSurface({ uri, offsetY }: { uri: string | null | undefined; offsetY: SharedValue<number> }) {
+  const moved = useAnimatedStyle(() => ({ transform: [{ translateY: -offsetY.get() }] }));
+  return (
+    <>
+      <Backdrop still />
+      <Animated.View style={[StyleSheet.absoluteFill, moved]} pointerEvents="none">
+        <DetailGlow uri={uri} />
+      </Animated.View>
+    </>
+  );
+}
+
 /**
  * Themes with a backdrop (glow, stars) draw it behind the whole screen. The cover backdrop ends in solid `bg`,
  * so where it stops the theme backdrop reappears with a hard edge. On web, fade the layer out instead.
@@ -158,7 +190,7 @@ const fadeOut =
 
 const useStyles = makeStyles((colors) => ({
   root: { paddingHorizontal: space.lg, paddingBottom: space.lg, gap: space.lg },
-  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, height: 460, overflow: 'hidden' },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, height: DETAIL_GLOW_HEIGHT, overflow: 'hidden' },
   art: {
     alignSelf: 'center',
     borderRadius: radius.lg,

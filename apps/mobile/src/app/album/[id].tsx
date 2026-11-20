@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { downloadTracks, player, useAlbum, type AppTrack, fileStorageSupported } from '@/core';
 import { Backdrop } from '@/ui/components/Backdrop';
 import { Artwork } from '@/ui/components/Artwork';
-import { DetailHeader } from '@/ui/components/DetailHeader';
+import { DETAIL_GLOW_HEIGHT, DetailGlowSurface, DetailHeader } from '@/ui/components/DetailHeader';
 import { EmptyState } from '@/ui/components/EmptyState';
 import { IconButton } from '@/ui/components/IconButton';
 import { Loading } from '@/ui/components/Loading';
@@ -36,7 +36,7 @@ export default function AlbumScreen() {
   const params = useLocalSearchParams<{ id: string; origin?: string }>();
   const origin = parseOrigin(params.origin);
   const insets = useSafeAreaInsets();
-  const { scrollY, onScroll } = useScrimScroll();
+  const { scrollY, offsetY, onScroll } = useScrimScroll(DETAIL_GLOW_HEIGHT);
   const chromeInset = useChromeInset('detail');
   // What's cached draws on the first frame; anything fetched mid-slide waits until the push has finished.
   const { album, tracks, isLoading, unreachable, retry } = useHeldDuringTransition(useAlbum(params.id, origin));
@@ -134,7 +134,7 @@ export default function AlbumScreen() {
     <ChromeHost overlay={<DockedMiniPlayer />}>
       <Backdrop />
       {body}
-      <StatusBarScrim scrollY={scrollY} />
+      <StatusBarScrim scrollY={scrollY} surface={album ? <DetailGlowSurface uri={album.artworkUri} offsetY={offsetY} /> : undefined} />
       <FloatingBack />
       {origin === 'remote' && album ? <OpenInApp path={`/album/${params.id}`} /> : null}
     </ChromeHost>

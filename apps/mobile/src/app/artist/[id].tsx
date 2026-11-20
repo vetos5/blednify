@@ -8,7 +8,7 @@ import { Backdrop } from '@/ui/components/Backdrop';
 import { AlbumCard } from '@/ui/components/AlbumCard';
 import { openArtistAdmin } from '@/ui/components/ArtistAdmin';
 import { Artwork } from '@/ui/components/Artwork';
-import { DetailHeader } from '@/ui/components/DetailHeader';
+import { DETAIL_GLOW_HEIGHT, DetailGlowSurface, DetailHeader } from '@/ui/components/DetailHeader';
 import { EmptyState } from '@/ui/components/EmptyState';
 import { IconButton } from '@/ui/components/IconButton';
 import { Loading } from '@/ui/components/Loading';
@@ -38,7 +38,7 @@ export default function ArtistScreen() {
   const params = useLocalSearchParams<{ id: string; origin?: string }>();
   const origin = parseOrigin(params.origin);
   const insets = useSafeAreaInsets();
-  const { scrollY, onScroll } = useScrimScroll();
+  const { scrollY, offsetY, onScroll } = useScrimScroll(DETAIL_GLOW_HEIGHT);
   const chromeInset = useChromeInset('detail');
   const cardW = useRailCardWidth();
   const { artist, albums, tracks, isLoading, unreachable, retry } = useArtist(params.id, origin);
@@ -131,7 +131,7 @@ export default function ArtistScreen() {
         ListEmptyComponent={isLoading ? <Loading /> : null}
         renderItem={({ item, index }) => <TrackRow track={item} index={index} onPress={play} onMore={onMore} />}
       />
-      <StatusBarScrim scrollY={scrollY} />
+      <StatusBarScrim scrollY={scrollY} surface={<DetailGlowSurface uri={backdrop} offsetY={offsetY} />} />
       <FloatingBack />
       {artist.origin === 'remote' ? <OpenInApp path={`/artist/${params.id}`} /> : null}
     </ChromeHost>

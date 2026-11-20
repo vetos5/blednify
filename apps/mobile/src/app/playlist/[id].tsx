@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { downloadTracks, player, usePlaylist, type AppTrack, fileStorageSupported } from '@/core';
 import { Backdrop } from '@/ui/components/Backdrop';
-import { DetailHeader } from '@/ui/components/DetailHeader';
+import { DETAIL_GLOW_HEIGHT, DetailGlowSurface, DetailHeader } from '@/ui/components/DetailHeader';
 import { EmptyState } from '@/ui/components/EmptyState';
 import { IconButton } from '@/ui/components/IconButton';
 import { Loading } from '@/ui/components/Loading';
@@ -29,7 +29,7 @@ export default function PlaylistScreen() {
   const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  const { scrollY, onScroll } = useScrimScroll();
+  const { scrollY, offsetY, onScroll } = useScrimScroll(DETAIL_GLOW_HEIGHT);
   const chromeInset = useChromeInset('detail');
   const { playlist, tracks } = usePlaylist(id);
   const settled = useAfter(500);
@@ -110,7 +110,7 @@ export default function PlaylistScreen() {
         }
         renderItem={({ item, index }) => <TrackRow track={item} index={index} onPress={play} onMore={onMore} subtitle="artist-album" />}
       />
-      <StatusBarScrim scrollY={scrollY} />
+      <StatusBarScrim scrollY={scrollY} surface={<DetailGlowSurface uri={cover[0]} offsetY={offsetY} />} />
       <FloatingBack />
     </ChromeHost>
   );
