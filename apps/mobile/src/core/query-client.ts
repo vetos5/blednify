@@ -1,17 +1,27 @@
 import { focusManager, QueryClient } from '@tanstack/react-query';
 import { AppState } from 'react-native';
 
+import { shouldRetryQuery } from './query-retry';
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 60_000,
       gcTime: 30 * 60_000,
-      retry: 1,
+      retry: (failureCount, error) => shouldRetryQuery(failureCount, error, serverKnownDown()),
       // The server is often on a LAN that the OS considers "offline"; let requests fail fast instead of pausing.
       networkMode: 'always',
     },
   },
 });
+
+/** The current server's health check failed last time it ran (`useServerStatus` keys it ['health', base, token]). */
+function serverKnownDown(): boolean {
+  return queryClient
+    .getQueryCache()
+    .findAll({ queryKey: ['health'] })
+    .some((q) => q.state.status === 'error' && q.state.dataUpdatedAt <= q.state.errorUpdatedAt && q.isActive());
+}
 
 // Revalidate stale queries when the app returns to the foreground.
 focusManager.setEventListener((setFocused) => {

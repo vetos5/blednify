@@ -203,7 +203,6 @@ function lyricsQuery(track: AppTrack | null, base: string, online: boolean) {
     // shows up the next time the song's lyrics are opened. Imported tracks keep their own rules (`loadLyrics`).
     staleTime: track?.origin === 'remote' ? 60_000 : 60 * 60_000,
     gcTime: 60 * 60_000,
-    retry: 1,
   };
 }
 
