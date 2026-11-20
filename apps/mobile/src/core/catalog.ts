@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { addNetworkStateListener, type NetworkState } from 'expo-network';
 import { useStore } from 'zustand';
 
 import {
@@ -38,6 +39,22 @@ const CATALOG_STALE_MS = 5 * 60_000;
 // ---------------------------------------------------------------------------------------------
 // Server status
 
+/**
+ * The health answer is cached for up to a minute, and `online` wins over the phone's own offline flag (a LAN
+ * server can answer with the radio off). Without this, turning Wi-Fi and data off left Home saying
+ * "Server · 220 songs" for up to a minute. Any change in the phone's connection asks the server again now.
+ */
+let netWatch: { remove(): void } | null = null;
+let lastNet: string | null = null;
+function watchNetworkForHealth() {
+  netWatch ??= addNetworkStateListener((net: NetworkState) => {
+    const key = `${net.isConnected}:${net.isInternetReachable}:${net.type}`;
+    if (key === lastNet) return;
+    lastNet = key;
+    void queryClient.invalidateQueries({ queryKey: ['health'] });
+  });
+}
+
 export function useServerStatus(): {
   online: boolean;
   needsToken: boolean;
@@ -47,6 +64,7 @@ export function useServerStatus(): {
 } {
   const base = useServerBase();
   const token = useStore(settingsStore, (s) => s.accessToken);
+  useEffect(watchNetworkForHealth, []);
   const q = useQuery({
     queryKey: ['health', base, token],
     queryFn: ({ signal }) => apiGet<ApiHealth>(base, '/api/health', signal, 5_000, token),
