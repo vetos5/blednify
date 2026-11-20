@@ -54,9 +54,9 @@ describe('isDoc', () => {
 
 describe('restoredMessage', () => {
   test('says what is on the device now', () => {
-    expect(restoredMessage({ playlists: 3, likes: 41 })).toBe('Library restored · 3 playlists, 41 liked songs');
-    expect(restoredMessage({ playlists: 1, likes: 1 })).toBe('Library restored · 1 playlist, 1 liked song');
-    expect(restoredMessage({ playlists: 0, likes: 0 })).toBe('Library restored · 0 playlists, 0 liked songs');
-    expect(restoredMessage(null)).toBe('Library restored');
+    expect(restoredMessage({ playlists: 3, likes: 41 })).toEqual({ title: 'Library restored', detail: '3\u00A0playlists · 41\u00A0liked songs' });
+    expect(restoredMessage({ playlists: 1, likes: 1 })).toEqual({ title: 'Library restored', detail: '1\u00A0playlist · 1\u00A0liked song' });
+    expect(restoredMessage({ playlists: 0, likes: 0 })).toEqual({ title: 'Library restored', detail: '0\u00A0playlists · 0\u00A0liked songs' });
+    expect(restoredMessage(null)).toEqual({ title: 'Library restored' });
   });
 });

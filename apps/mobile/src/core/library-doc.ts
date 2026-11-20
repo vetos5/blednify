@@ -40,9 +40,12 @@ export function isDoc(x: unknown): x is LibraryDoc {
   return isRecord(x) && x.v === 1 && isRecord(x.playlists) && isRecord(x.likes);
 }
 
-/** The confirmation after a restore: what this device has now, so it is clear something happened. */
-export function restoredMessage(counts: { playlists: number; likes: number } | null): string {
-  if (!counts) return 'Library restored';
-  const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
-  return `Library restored · ${n(counts.playlists, 'playlist', 'playlists')}, ${n(counts.likes, 'liked song', 'liked songs')}`;
+/**
+ * The confirmation after a restore: what this device has now, so it is clear something happened. The counts are a
+ * second line, so on a narrow phone a number never wraps away from its noun.
+ */
+export function restoredMessage(counts: { playlists: number; likes: number } | null): { title: string; detail?: string } {
+  if (!counts) return { title: 'Library restored' };
+  const n = (k: number, one: string, many: string) => `${k}\u00A0${k === 1 ? one : many}`;
+  return { title: 'Library restored', detail: `${n(counts.playlists, 'playlist', 'playlists')} · ${n(counts.likes, 'liked song', 'liked songs')}` };
 }

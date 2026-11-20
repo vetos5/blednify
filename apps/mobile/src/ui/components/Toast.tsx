@@ -33,7 +33,11 @@ export function ToastHost() {
         {toast ? (
           <Animated.View
             key={toast.id}
-            entering={(wide ? FadeInDown : FadeInUp).duration(220)}
+            // Starts nearly opaque and close to its place: a full fade from 0 showed the page header through the card
+            // for its first frames.
+            entering={(wide ? FadeInDown : FadeInUp)
+              .duration(160)
+              .withInitialValues({ opacity: 0.85, transform: [{ translateY: wide ? 10 : -10 }] })}
             exiting={(wide ? FadeOutDown : FadeOutUp).duration(180)}
             style={styles.toast}
             // Native screen readers get the message from showToast(); the live region covers the web app.
@@ -45,9 +49,16 @@ export function ToastHost() {
             ) : (
               <Icon name={ICONS[toast.kind].name} size={20} color={colors[ICONS[toast.kind].color]} />
             )}
-            <Text variant="bodyStrong" style={styles.message} numberOfLines={2}>
-              {toast.message}
-            </Text>
+            <View style={styles.message}>
+              <Text variant="bodyStrong" numberOfLines={2}>
+                {toast.message}
+              </Text>
+              {toast.detail ? (
+                <Text variant="caption" color={colors.textSecondary} numberOfLines={2}>
+                  {toast.detail}
+                </Text>
+              ) : null}
+            </View>
             {toast.action ? (
               <Pressable
                 accessibilityRole="button"
@@ -99,6 +110,6 @@ const useStyles = makeStyles((colors) => ({
     shadowOffset: { width: 0, height: 8 },
     elevation: 12,
   },
-  message: { flexShrink: 1 },
+  message: { flexShrink: 1, gap: 2 },
   action: { paddingHorizontal: space.xs, paddingVertical: space.xs, minHeight: 32, justifyContent: 'center' },
 }));
