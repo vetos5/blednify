@@ -49,7 +49,7 @@ export function TabBar({ state, emitter, navigateToTab, insets }: MaterialTopTab
               }}
               onLongPress={() => emitter.emit({ type: 'tabLongPress', target: route.key })}>
               <Icon name={focused ? tab.iconActive : tab.icon} size={24} color={color} strokeWidth={focused ? 2.6 : 2} />
-              <Text variant="micro" color={color} style={styles.label}>
+              <Text variant="micro" color={color} style={styles.label} maxFontSizeMultiplier={1.3}>
                 {tab.label}
               </Text>
               <View style={[styles.dot, focused && styles.dotActive]} />
@@ -270,7 +270,8 @@ function FaceLayout({
         </AView>
       </View>
       <AView style={[styles.pillLabel, label]} onLayout={(e) => onLabelWidth(e.nativeEvent.layout.width)}>
-        <Text variant="bodyStrong" color={colors.text} numberOfLines={1}>
+        {/* The bar's height is fixed and the label shares the pill with the icon: it stops growing at 1.3x. */}
+        <Text variant="bodyStrong" color={colors.text} numberOfLines={1} maxFontSizeMultiplier={1.3}>
           {tab.label}
         </Text>
       </AView>

@@ -355,7 +355,9 @@ function BrowseGrid() {
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.tileFill}>
-              <Text variant="subheading" numberOfLines={2} style={styles.tileLabel}>
+              {/* Capped at 1.5x: at the largest system sizes a one-word label ("Downloaded") otherwise breaks
+                  mid-word across two lines of a half-width tile. */}
+              <Text variant="subheading" numberOfLines={2} maxFontSizeMultiplier={TILE_FONT_MAX}>
                 {b.label}
               </Text>
               <View style={styles.tileIcon}>
@@ -368,6 +370,9 @@ function BrowseGrid() {
     </View>
   );
 }
+
+/** Largest font scale the browse tile labels follow (see the tile). */
+const TILE_FONT_MAX = 1.5;
 
 const useStyles = makeStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.bg },
@@ -406,6 +411,5 @@ const useStyles = makeStyles((colors) => ({
   tile: { width: '47.5%', flexGrow: 1, minHeight: 96, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.surface2 },
   tileWide: { width: '23%', flexGrow: 0, minHeight: 120 },
   tileFill: { flex: 1, padding: space.md, paddingBottom: space.xl + space.md },
-  tileLabel: { maxWidth: '70%' },
   tileIcon: { position: 'absolute', right: -4, bottom: -6, transform: [{ rotate: '-14deg' }] },
 }));

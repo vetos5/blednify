@@ -93,10 +93,12 @@ export function MiniPlayer() {
             <Animated.View style={[styles.content, contentStyle]}>
               <Artwork uri={current.artworkUri} label={current.album || current.title} size={44} round={floating} recyclingKey={current.key} priority="high" />
               <View style={styles.meta}>
-                <Text variant="bodyStrong" numberOfLines={1}>
+                {/* The bar has a fixed height (screens pad for it), so its two lines stop growing at 1.3x; the full
+                    player shows the title at any size. */}
+                <Text variant="bodyStrong" numberOfLines={1} maxFontSizeMultiplier={MINI_FONT_MAX}>
                   {current.title}
                 </Text>
-                <Text variant="caption" numberOfLines={1}>
+                <Text variant="caption" numberOfLines={1} maxFontSizeMultiplier={MINI_FONT_MAX}>
                   {current.artist}
                 </Text>
               </View>
@@ -171,6 +173,9 @@ function MiniProgress({ inset }: { inset: number }) {
     </View>
   );
 }
+
+/** Largest font scale the bar's title and artist follow (see the bar). */
+const MINI_FONT_MAX = 1.3;
 
 const useStyles = makeStyles((colors) => ({
   wrap: { paddingHorizontal: space.sm, paddingBottom: space.xs },
