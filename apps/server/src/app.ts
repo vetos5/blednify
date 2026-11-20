@@ -16,6 +16,7 @@ import { openDb, type Db } from "./db";
 import { audioMime } from "./ids";
 import { Importer, LinkError } from "./imports/importer";
 import { Library, LibraryError, toTrack } from "./library";
+import { AuthLimiter, clientKey } from "./auth-limit";
 import { userLibraryRoutes } from "./user-library";
 import { LyricsService } from "./lyrics";
 import { InvalidAudioError, Scanner } from "./scanner";
@@ -164,6 +165,7 @@ export function createApp(ctx: AppContext): Hono {
   const { config, lib, scanner, art, lyrics, claims, importer } = ctx;
   const app = new Hono();
   const admin = adminOnly(config.adminToken, config.allowOpenWrites);
+  const authLimiter = new AuthLimiter();
   const uploadsDir = join(config.musicDir, "uploads");
   let deleteRebuild: ReturnType<typeof setTimeout> | null = null;
 
@@ -185,6 +187,22 @@ export function createApp(ctx: AppContext): Hono {
     }),
   );
   app.use(compress({ contentTypeFilter: /^application\/json/ }));
+
+  // Token guessing: a client that presented too many distinct wrong tokens waits (see auth-limit.ts).
+  app.use("/api/*", async (c, next) => {
+    const bearer = /^Bearer\s+(.+)$/i.exec(c.req.header("authorization") ?? "")?.[1]?.trim();
+    const credential = bearer || getCookie(c, LISTEN_COOKIE);
+    if (!credential) return next();
+    const server = c.env as { requestIP?: (req: Request) => { address: string } | null } | undefined;
+    const client = clientKey(c.req.raw.headers, server?.requestIP?.(c.req.raw)?.address);
+    const wait = authLimiter.retryAfterMs(client);
+    if (wait > 0) {
+      c.header("Retry-After", String(Math.ceil(wait / 1000)));
+      return c.json({ error: "too many wrong tokens; try again later" }, 429);
+    }
+    await next();
+    if (c.res.status === 401) authLimiter.fail(client, credential);
+  });
 
   app.onError((err, c) => {
     if (err instanceof HTTPException) return c.json({ error: err.message || "error" }, err.status);
