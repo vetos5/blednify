@@ -5,7 +5,7 @@ Single source of truth between `apps/server` and `apps/mobile`. Change both side
 Base URL: configurable in the app (Settings → Server). Default from `EXPO_PUBLIC_API_URL`.
 All JSON. Reads need `Authorization: Bearer <LISTEN_TOKEN>` (`/api/health` is always open and reports `authRequired`); a server without `LISTEN_TOKEN` refuses to start unless it runs with `ALLOW_OPEN_READS=1`, which leaves reads open. Writes (upload/delete/edit/rescan/admin routes, all `POST`/`PATCH`/`DELETE`) require `Authorization: Bearer <ADMIN_TOKEN>` instead; a server without `ADMIN_TOKEN` refuses them with `403` unless it runs with `ALLOW_OPEN_WRITES=1`.
 
-Token guessing: a client (Cloudflare's `CF-Connecting-IP`, else the first `X-Forwarded-For` hop, else the socket address) that presents 20 *distinct* wrong tokens (bearer or the listen cookie) within 15 minutes gets `429 { error }` with `Retry-After` on every `/api/*` request that carries a credential, the right one included, until the window passes. Repeating the same wrong token (an app with an old token) never locks.
+Token guessing: a client (its socket address; for a request from a trusted proxy (`TRUSTED_PROXIES`, default `private`: the tunnel's container) Cloudflare's `CF-Connecting-IP`, else the nearest `X-Forwarded-For` hop that isn't a trusted proxy) that presents 20 *distinct* wrong tokens (bearer or the listen cookie) within 15 minutes gets `429 { error }` with `Retry-After` on every `/api/*` request that carries a credential, the right one included, until the window passes. Repeating the same wrong token (an app with an old token) never locks.
 
 ## Types
 

@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
 
+import { DEFAULT_TRUSTED_PROXIES, parseTrustedProxies, type TrustedProxies } from "./auth-limit";
+
 export type Config = {
   port: number;
   musicDir: string;
@@ -36,6 +38,8 @@ export type Config = {
   /** Built web app (`expo export -p web` output) served at `/`; null when WEB_DIR is unset. */
   webDir: string | null;
   logRequests: boolean;
+  /** Peers whose CF-Connecting-IP / X-Forwarded-For name the client for the token-guess limit (auth-limit.ts). */
+  trustedProxies: TrustedProxies;
 };
 
 function int(name: string, value: string | undefined, fallback: number): number {
@@ -69,5 +73,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     webDir: env.WEB_DIR?.trim() ? resolve(env.WEB_DIR.trim()) : null,
     logRequests: env.NODE_ENV !== "test" && env.LOG_REQUESTS !== "0",
+    trustedProxies: parseTrustedProxies(env.TRUSTED_PROXIES?.trim() || DEFAULT_TRUSTED_PROXIES),
   };
 }

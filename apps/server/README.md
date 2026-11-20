@@ -46,6 +46,7 @@ symlinks are followed. A file that fails to parse is logged and skipped until it
 | `YTDLP_PIP` | unset (image: `/opt/ytdlp/bin/pip`) | When set, yt-dlp is upgraded at start and daily, since YouTube breaks old releases. |
 | `LRCLIB_URL` | `https://lrclib.net` | Base URL of an LRCLIB-compatible API (for a self-hosted mirror). |
 | `WEB_DIR` | unset | Folder with the built web app (`tools/web/deploy.sh <dir>`), served at `/` with cross-origin isolation headers. Unset: nothing is served outside `/api`. |
+| `TRUSTED_PROXIES` | `private` | Peers whose `CF-Connecting-IP` / `X-Forwarded-For` headers name the client for the token-guess limit; every other peer is counted by its own address, whatever its headers say. Comma-separated CIDRs or addresses, or `loopback`, `private` (loopback + 10/8, 172.16/12, 192.168/16, fc00::/7, where a tunnel container connects from) or `none`. If the server's port is reachable from a LAN you don't control, set `loopback` (proxy on the same host) or the proxy's exact address. |
 | `LOG_REQUESTS` | `1` | `0` turns off the one-line-per-request log. Successful `/api/health` calls are never logged. |
 
 ## Playlist imports

@@ -194,7 +194,7 @@ export function createApp(ctx: AppContext): Hono {
     const credential = bearer || getCookie(c, LISTEN_COOKIE);
     if (!credential) return next();
     const server = c.env as { requestIP?: (req: Request) => { address: string } | null } | undefined;
-    const client = clientKey(c.req.raw.headers, server?.requestIP?.(c.req.raw)?.address);
+    const client = clientKey(c.req.raw.headers, server?.requestIP?.(c.req.raw)?.address, config.trustedProxies);
     const wait = authLimiter.retryAfterMs(client);
     if (wait > 0) {
       c.header("Retry-After", String(Math.ceil(wait / 1000)));
