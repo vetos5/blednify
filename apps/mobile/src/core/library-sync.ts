@@ -5,7 +5,7 @@ import { create, useStore } from 'zustand';
 import { ApiError } from './api';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { writeTx } from './db';
+import { getDb, writeTx } from './db';
 import { loadLibIndexAgain } from './lib-index';
 import { invalidate, libKeys, onInvalidate } from './query-client';
 import { getServerBase, kv, settingsStore } from './settings';
@@ -280,7 +280,7 @@ export function syncLibrary(): Promise<void> {
  * first sync failed and will retry. `previousKey` is the key this device used before.
  */
 export type SwitchResult =
-  | { status: 'restored'; previousKey: string | null }
+  | { status: 'restored'; previousKey: string | null; counts: { playlists: number; likes: number } | null }
   | { status: 'empty' }
   | { status: 'failed'; error: string; switched: boolean; previousKey?: string | null };
 
@@ -309,7 +309,20 @@ export async function switchLibraryKey(raw: string, opts: { allowEmpty?: boolean
   await syncLibrary();
   const after = librarySyncStore.getState();
   if (after.status === 'error') return { status: 'failed', error: after.error ?? 'Sync failed', switched: true, previousKey };
-  return { status: 'restored', previousKey };
+  return { status: 'restored', previousKey, counts: await libraryCounts() };
+}
+
+/** Playlists and likes on this device, for the restore confirmation; null if the count itself fails. */
+async function libraryCounts(): Promise<{ playlists: number; likes: number } | null> {
+  try {
+    const db = await getDb();
+    const row = await db.getFirstAsync<{ playlists: number; likes: number }>(
+      'SELECT (SELECT COUNT(*) FROM playlists) AS playlists, (SELECT COUNT(*) FROM likes) AS likes',
+    );
+    return row ?? null;
+  } catch {
+    return null;
+  }
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;

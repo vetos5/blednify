@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { isDoc, mergeDocs, sameDoc, type LibraryDoc } from '../src/core/library-doc';
+import { isDoc, mergeDocs, restoredMessage, sameDoc, type LibraryDoc } from '../src/core/library-doc';
 
 const pl = (updatedAt: number, tracks: string[] = []) => ({ name: 'P', createdAt: 1, updatedAt, cover: null, importId: null, tracks });
 const doc = (d: Partial<LibraryDoc>): LibraryDoc => ({ v: 1, playlists: {}, likes: {}, ...d });
@@ -49,5 +49,14 @@ describe('isDoc', () => {
     expect(isDoc({ v: 1, playlists: {}, likes: {}, future: true })).toBe(true);
     for (const x of [null, 5, [], { v: 2, playlists: {}, likes: {} }, { v: 1, playlists: null, likes: {} }, { v: 1, playlists: {}, likes: [] }])
       expect({ x, ok: isDoc(x) }).toEqual({ x, ok: false });
+  });
+});
+
+describe('restoredMessage', () => {
+  test('says what is on the device now', () => {
+    expect(restoredMessage({ playlists: 3, likes: 41 })).toBe('Library restored · 3 playlists, 41 liked songs');
+    expect(restoredMessage({ playlists: 1, likes: 1 })).toBe('Library restored · 1 playlist, 1 liked song');
+    expect(restoredMessage({ playlists: 0, likes: 0 })).toBe('Library restored · 0 playlists, 0 liked songs');
+    expect(restoredMessage(null)).toBe('Library restored');
   });
 });

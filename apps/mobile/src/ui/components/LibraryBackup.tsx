@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Platform, Share, View } from 'react-native';
 
-import { formatLibraryKey, normalizeLibraryKey, switchLibraryKey, syncLibrary, useLibrarySync, useServerBase } from '@/core';
+import { formatLibraryKey, normalizeLibraryKey, restoredMessage, switchLibraryKey, syncLibrary, useLibrarySync, useServerBase } from '@/core';
 
 import { haptics } from '../haptics';
 import { closeSheet, showSheet, showToast } from '../overlay';
@@ -117,7 +117,7 @@ async function runSwitch(key: string, allowEmpty: boolean, onDone?: () => void) 
   haptics.success();
   const previous = r.previousKey;
   showToast(
-    allowEmpty ? 'New library started' : 'Library restored',
+    allowEmpty ? 'New library started' : restoredMessage(r.counts),
     'success',
     previous && previous !== key ? { label: 'Switch back', onPress: () => confirmSwitchBack(previous) } : undefined,
   );

@@ -39,3 +39,10 @@ const isRecord = (x: unknown): x is Record<string, unknown> => !!x && typeof x =
 export function isDoc(x: unknown): x is LibraryDoc {
   return isRecord(x) && x.v === 1 && isRecord(x.playlists) && isRecord(x.likes);
 }
+
+/** The confirmation after a restore: what this device has now, so it is clear something happened. */
+export function restoredMessage(counts: { playlists: number; likes: number } | null): string {
+  if (!counts) return 'Library restored';
+  const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+  return `Library restored · ${n(counts.playlists, 'playlist', 'playlists')}, ${n(counts.likes, 'liked song', 'liked songs')}`;
+}

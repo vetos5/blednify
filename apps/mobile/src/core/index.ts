@@ -138,6 +138,7 @@ export {
   syncLibrary,
   useLibrarySync,
 } from './library-sync';
+export { restoredMessage } from './library-doc';
 
 // Sharing
 export {
