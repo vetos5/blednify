@@ -80,6 +80,10 @@ export type DownloadStatus = 'none' | 'queued' | 'downloading' | 'done' | 'error
 - Queue + position persisted (MMKV) and restored paused on cold start.
 - Audio backend: `core/player/audio.ts` (expo-audio) / `audio.web.ts` (web: ONE reused `<audio>` element + Media
   Session, so iOS keeps auto-advancing with the screen locked). The engine only talks to that module.
+- Engine decisions that don't need native are pure and unit-tested: `window.ts` (native window, Next/Previous
+  index steps), `reach.ts` (offline vs back online), `stall.ts` (watchdog: hung connection → retry in the same
+  player, wedged player → new player; how an error is taken), `upcoming.ts` (what the Queue shows next, repeat-all
+  wrap included).
 
 ### Web app (iPhone via Safari → Add to Home Screen)
 - Same code base, `expo export -p web`, hosted by the server (`WEB_DIR`). Streams only:

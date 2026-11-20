@@ -55,6 +55,7 @@ import { shuffled } from '../util';
 import { lockArtwork, prefetchLockArtwork } from './lock-art';
 import { fromRow, toRow, type QueueRow } from './queue-rows';
 import { playerStore, progressStore } from './store';
+import { errorPlan, stallAction } from './stall';
 import { backOnlineVerdict, LAN_REPROBE_MS, offlineVerdict, PROBE_TIMEOUT_MS, type NetState } from './reach';
 import { nextIndexIn, planTail, planWindow, prevIndexIn, resolveNativeMove, WINDOW_AHEAD, type Slot as WindowSlot } from './window';
 
@@ -312,36 +313,60 @@ function livePositionMs(): number {
  * Bluetooth headset vanished mid-song (battery died), every later load in that player hung until the timeout, and
  * the fresh player made for the retry started at once. So the first stall on a song is retried quietly, after
  * STALL_MS, in a new player at the same position; a second one is reported and handled like a dropped connection.
+ * A streamed song first asks the server: when it doesn't answer, the connection hangs (Wi-Fi without internet, a
+ * dead zone) and the player is fine, so it is one more network failure, retried in place (`stallAction`).
  */
 function armWatchdog() {
   clearWatchdog();
   if (!wantPlay || started) return;
   const uid = entries[index]?.uid;
-  const quiet = uid !== undefined && quietRetryUid !== uid;
+  if (uid === undefined) return;
+  const quiet = quietRetryUid !== uid;
   watchdog = setTimeout(
     () => {
       watchdog = null;
-      // JS may be throttled (background) with native's "playing" events still queued; ask native directly
-      // before tearing down a player that is in fact playing fine.
-      catchUpNative();
-      if (!wantPlay || started || entries[index]?.uid !== uid) return;
-      if (natReady && !natBroken && !advancingTo && isNativePlaying()) {
-        started = true;
-        errorsSincePlaying = 0;
-        return;
-      }
-      if (quiet) {
-        quietRetryUid = uid;
-        const at = livePositionMs();
-        natBroken = true;
-        load(index, true, at);
-        return;
-      }
-      // Usually a connection that stalls without failing outright; treat it like one rather than skipping.
-      onPlaybackError(curLoaded ? 'Playback stalled' : 'Song took too long to load', true, true);
+      void onStall(uid, quiet);
     },
     quiet ? STALL_MS : LOAD_TIMEOUT_MS,
   );
+}
+
+async function onStall(uid: number, quiet: boolean, answers?: boolean): Promise<void> {
+  // JS may be throttled (background) with native's "playing" events still queued; ask native directly
+  // before tearing down a player that is in fact playing fine.
+  catchUpNative();
+  const cur = entries[index];
+  const action = stallAction({
+    // A watchdog armed meanwhile (a retry, a new load) owns the song now.
+    current: wantPlay && !started && watchdog === null && cur?.uid === uid,
+    nativePlaying: natReady && !natBroken && !advancingTo && isNativePlaying(),
+    streams: !!cur && !playsOffline(cur.track),
+    quiet,
+    serverAnswers: answers,
+  });
+  switch (action) {
+    case 'none':
+      return;
+    case 'started':
+      started = true;
+      errorsSincePlaying = 0;
+      return;
+    case 'probe':
+      return onStall(uid, quiet, await serverAnswers());
+    case 'network-error':
+      onPlaybackError("Can't reach the server", true);
+      return;
+    case 'reload-new-player': {
+      quietRetryUid = uid;
+      const at = livePositionMs();
+      natBroken = true;
+      load(index, true, at);
+      return;
+    }
+    case 'report-recreate':
+      // The server answers but this player doesn't play: handle it like a dropped connection, in a new player.
+      onPlaybackError(curLoaded ? 'Playback stalled' : 'Song took too long to load', true, true);
+  }
 }
 
 // --- Native lifecycle ------------------------------------------------------------------------
@@ -957,8 +982,10 @@ function onPlaybackError(message: string, network = false, recreate = false, sto
   // only when it fails again before playing, in case it is what is stuck. A dropped connection doesn't count
   // towards that: its retries re-prepare the same player in place (`retryInPlace`), however many it takes, and a
   // player that really hangs is caught by the watchdog (`recreate`). The web backend is always recreated.
-  const retrying = network && resume;
-  natBroken = recreate || Platform.OS === 'web' || (!retrying && errorsSincePlaying++ > 0);
+  const web = Platform.OS === 'web';
+  const { retrying, natBroken: broken } = errorPlan({ network, wantPlay: resume, recreate, web, errorsSincePlaying });
+  if (!recreate && !web && !retrying) errorsSincePlaying++;
+  natBroken = broken;
   natReady = false;
   pendingSeekMs = null;
   if (retrying) {
