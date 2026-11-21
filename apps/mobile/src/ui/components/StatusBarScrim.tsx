@@ -98,13 +98,13 @@ export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<numb
     },
   );
   const shown = useAnimatedStyle(() => ({ opacity: interpolate(scrollY.get(), [0, FADE_PX], [0, 1], 'clamp') }));
-  // The tail is a plain bg shade, not part of the copy. Over a sky, a glow or the player's art it would lay a darker
-  // stripe under the clock where nothing is scrolled, so it is lighter there; a flat background takes the full shade.
-  // 0.25 still left an 8-level line on Starry night's warm bg (38 -> 30); 0.12 keeps every sky within about 4.
-  // On the player the shade is near-black over a bright art tint, so even 0.25 read as a band edge (134 → 108 on a
-  // pink cover); there it only hints at the edge. A surface copy matches what is under it, so the tail is all that
-  // marks the edge: 0.1 still left a 7-10 level line on the detail pages' glow (Stars at night 98 -> 88), 0.05 halves it.
+  // The tail is a plain shade, not part of the copy, so it is all that marks the band's edge. A flat background takes
+  // the full bg shade. Over a sky it is light, or it would draw a stripe under the clock where nothing is scrolled, and
+  // on a dark sky it is black rather than bg: black only darkens, so the stripe keeps the sky's hue instead of tinting a
+  // warm sky (Starry night's gold glow) towards the cool bg. A surface copy (the player's art, a detail page's glow)
+  // already matches what is under it, so there the tail only hints at the edge.
   const tailAlpha = surface ? TAIL_ALPHA_OVER_COVER : colors.backdrop !== 'none' ? TAIL_ALPHA_OVER_BACKDROP : TAIL_ALPHA;
+  const tailShade = !surface && colors.backdrop !== 'none' && !colors.isLight ? colors.black : colors.bg;
   if (Platform.OS === 'web' || insets.top <= 0) return null;
   return (
     <View
@@ -123,7 +123,7 @@ export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<numb
           <View style={[styles.slice, { height: insets.top }]}>
             <View style={[styles.slice, { height: rootH, backgroundColor: colors.bg }]}>{surface ?? <Backdrop still />}</View>
           </View>
-          <LinearGradient colors={[withAlpha(colors.bg, tailAlpha), withAlpha(colors.bg, 0)]} style={[styles.tail, { top: insets.top }]} />
+          <LinearGradient colors={[withAlpha(tailShade, tailAlpha), withAlpha(tailShade, 0)]} style={[styles.tail, { top: insets.top }]} />
         </Animated.View>
       ) : null}
     </View>
