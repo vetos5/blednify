@@ -115,7 +115,11 @@ export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<numb
       style={styles.root}
       onLayout={(e) => setRootH(Math.round(e.nativeEvent.layout.height))}>
       {rootH > 0 && mounted ? (
-        <Animated.View style={[styles.band, { height: insets.top + TAIL_PX }, shown]}>
+        <Animated.View
+          // While it fades in, the band must blend in as one picture. Without an offscreen layer Android fades each
+          // child on its own (bg, sky, cover, its veil), and the stack came out up to 12 levels darker than the page.
+          needsOffscreenAlphaCompositing
+          style={[styles.band, { height: insets.top + TAIL_PX }, shown]}>
           <View style={[styles.slice, { height: insets.top }]}>
             <View style={[styles.slice, { height: rootH, backgroundColor: colors.bg }]}>{surface ?? <Backdrop still />}</View>
           </View>
