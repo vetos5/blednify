@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { usePathname } from 'expo-router';
+import { useEffect, useRef } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown, FadeInUp, FadeOutDown, FadeOutUp } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,6 +9,7 @@ import { usePlayer } from '@/core';
 import { HEADER_ROW_HEIGHT, PLAYER_BAR_HEIGHT, useIsWide } from '../layout';
 import { dismissToast, showToast, useOverlay, type ToastKind } from '../overlay';
 import { makeStyles, radius, space, useColors } from '../theme';
+import { dropsOnRouteChange } from '../toast-scope';
 import { Icon, type IconName } from './Icon';
 import { Text } from './Text';
 import { TopLayer } from './TopLayer';
@@ -28,6 +30,7 @@ export function ToastHost() {
   // just below the header row, so Back stays visible and tappable while one is up (it used to sit over the chevron).
   const wide = useIsWide();
   usePlaybackErrorToasts();
+  useDropScreenToastsOnRouteChange();
   return (
     <TopLayer>
       <View pointerEvents="box-none" style={[styles.host, wide ? { bottom: PLAYER_BAR_HEIGHT + space.lg } : { top: insets.top + HEADER_ROW_HEIGHT + space.xs }]}>
@@ -81,6 +84,21 @@ export function ToastHost() {
       </View>
     </TopLayer>
   );
+}
+
+/**
+ * Clears a screen's own note when the user leaves that screen ("Added to queue" raised on the player used to stay up
+ * over the Home header after the player closed). See dropsOnRouteChange for which toasts stay.
+ */
+function useDropScreenToastsOnRouteChange() {
+  const pathname = usePathname();
+  const last = useRef(pathname);
+  useEffect(() => {
+    if (last.current === pathname) return;
+    last.current = pathname;
+    const { toast } = useOverlay.getState();
+    if (toast && dropsOnRouteChange(toast, Date.now())) dismissToast(toast.id);
+  }, [pathname]);
 }
 
 /** Surfaces every playback error app-wide; `errorId` changes even when the message repeats. */

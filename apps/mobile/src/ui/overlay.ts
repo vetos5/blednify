@@ -5,7 +5,8 @@ import { create } from 'zustand';
 export type ToastKind = 'info' | 'success' | 'error' | 'progress';
 /** Optional button on a toast (e.g. "Undo"). Pressing it dismisses the toast first, then runs `onPress`. */
 export type ToastAction = { label: string; onPress: () => void };
-export type ToastData = { id: number; message: string; detail?: string; kind: ToastKind; action?: ToastAction };
+/** `at` is when it was shown (ms since epoch), so a route change can tell a stale note from a fresh one. */
+export type ToastData = { id: number; message: string; detail?: string; kind: ToastKind; action?: ToastAction; at: number };
 /** A toast's text: one line, or a title with a quieter second line. */
 export type ToastText = string | { title: string; detail?: string };
 
@@ -42,7 +43,7 @@ export function showToast(text: ToastText, kind: ToastKind = 'info', action?: To
   clearTimeout(toastTimer);
   const id = ++seq;
   const { title: message, detail } = typeof text === 'string' ? { title: text, detail: undefined } : text;
-  useOverlay.setState({ toast: { id, message, detail, kind, action } });
+  useOverlay.setState({ toast: { id, message, detail, kind, action, at: Date.now() } });
   // A live region on a freshly mounted view isn't announced reliably on Android; say it explicitly.
   const spoken = detail ? `${message}. ${detail}` : message;
   if (Platform.OS !== 'web') AccessibilityInfo.announceForAccessibility(action ? `${spoken}. ${action.label} available` : spoken);
