@@ -1,0 +1,99 @@
+{
+  "name": "PowerOn Schedule Fetcher",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "minutesInterval": 0
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-1111-4aaa-bbbb-000000000001",
+      "name": "Every Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.loe.lviv.ua/api/menus?page=1&type=photo-grafic",
+        "options": {}
+      },
+      "id": "a1b2c3d4-2222-4aaa-bbbb-000000000002",
+      "name": "Fetch Schedule",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const BASE_URL = 'https://api.loe.lviv.ua';\n\nconst menus = $input.first().json;\nconst items = Array.isArray(menus) ? menus[0]?.menuItems : menus?.menuItems;\n\nif (!items || items.length === 0) {\n  throw new Error('No menu items found in API response');\n}\n\n// Today schedule (first item)\nconst today = items[0];\nconst rawHtml = today.rawHtml || '';\nconst imageUrl = today.imageUrl ? BASE_URL + today.imageUrl : '';\nconst mobileImageUrl = today.slug ? BASE_URL + today.slug : '';\n\n// Tomorrow schedule (third item, index 2, if exists)\nconst tomorrow = items.length > 2 ? items[2] : null;\nconst tomorrowRawHtml = tomorrow?.rawHtml || '';\nconst tomorrowImageUrl = tomorrow?.imageUrl ? BASE_URL + tomorrow.imageUrl : '';\nconst tomorrowMobileImageUrl = tomorrow?.slug ? BASE_URL + tomorrow.slug : '';\n\nreturn [{\n  json: {\n    rawHtml,\n    imageUrl,\n    mobileImageUrl,\n    tomorrowRawHtml,\n    tomorrowImageUrl,\n    tomorrowMobileImageUrl\n  }\n}];"
+      },
+      "id": "a1b2c3d4-3333-4aaa-bbbb-000000000003",
+      "name": "Parse Schedule",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://power-monitor-bot:3100/webhook/schedule",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-4444-4aaa-bbbb-000000000004",
+      "name": "Send to Bot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 300]
+    }
+  ],
+  "connections": {
+    "Every Hour": {
+      "main": [
+        [
+          {
+            "node": "Fetch Schedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Schedule": {
+      "main": [
+        [
+          {
+            "node": "Parse Schedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Schedule": {
+      "main": [
+        [
+          {
+            "node": "Send to Bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [],
+  "pinData": {}
+}
