@@ -21,7 +21,7 @@ const TAIL_PX = 20;
 /** Where the tail starts: the bg shade over a flat background, a sky or glow, and a custom surface (the player's art). */
 const TAIL_ALPHA = 0.5;
 const TAIL_ALPHA_OVER_BACKDROP = 0.12;
-const TAIL_ALPHA_OVER_COVER = 0.1;
+const TAIL_ALPHA_OVER_COVER = 0.05;
 /** How long the copy stays mounted after scrolling back to the top, so flicking around the top doesn't remount it. */
 const UNMOUNT_AFTER_MS = 1500;
 
@@ -102,7 +102,8 @@ export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<numb
   // stripe under the clock where nothing is scrolled, so it is lighter there; a flat background takes the full shade.
   // 0.25 still left an 8-level line on Starry night's warm bg (38 -> 30); 0.12 keeps every sky within about 4.
   // On the player the shade is near-black over a bright art tint, so even 0.25 read as a band edge (134 → 108 on a
-  // pink cover); there it only hints at the edge.
+  // pink cover); there it only hints at the edge. A surface copy matches what is under it, so the tail is all that
+  // marks the edge: 0.1 still left a 7-10 level line on the detail pages' glow (Stars at night 98 -> 88), 0.05 halves it.
   const tailAlpha = surface ? TAIL_ALPHA_OVER_COVER : colors.backdrop !== 'none' ? TAIL_ALPHA_OVER_BACKDROP : TAIL_ALPHA;
   if (Platform.OS === 'web' || insets.top <= 0) return null;
   return (
