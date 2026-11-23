@@ -84,10 +84,13 @@ function QueuePanel() {
   const colors = useColors();
   const queue = usePlayer((s) => s.queue);
   const index = usePlayer((s) => s.index);
+  const autoFrom = usePlayer((s) => Math.max(s.autoFrom, s.index + 1));
   const isPlaying = usePlayer((s) => s.isPlaying);
   const current = queue[index] ?? null;
-  const upNext = queue.slice(index + 1, index + 1 + MAX_ROWS);
-  const more = queue.length - (index + 1) - upNext.length;
+  // What the user chose, then the autoplay songs (core/player/autoplay.ts), each with its own heading.
+  const upNext = queue.slice(index + 1, Math.min(autoFrom, index + 1 + MAX_ROWS));
+  const more = autoFrom - (index + 1) - upNext.length;
+  const autoplay = queue.slice(autoFrom, autoFrom + MAX_ROWS);
   const [drag, setDrag] = useState<Drag | null>(null);
   const startY = useRef(0);
 
@@ -151,9 +154,9 @@ function QueuePanel() {
       </View>
 
       <Text variant="micro" color={colors.textTertiary} style={styles.section}>
-        {upNext.length ? `NEXT UP · ${queue.length - index - 1}` : 'NEXT UP'}
+        {upNext.length ? `NEXT UP · ${autoFrom - index - 1}` : 'NEXT UP'}
       </Text>
-      {upNext.length === 0 ? (
+      {upNext.length === 0 && autoplay.length === 0 ? (
         <Text variant="caption" style={styles.emptyNote}>
           Right-click a song and choose “Play next” or “Add to queue”.
         </Text>
@@ -173,11 +176,25 @@ function QueuePanel() {
           + {more} more
         </Text>
       ) : null}
+      {autoplay.length ? (
+        <>
+          <Text variant="micro" color={colors.textTertiary} style={styles.section}>
+            {`AUTOPLAY · ${queue.length - autoFrom}`}
+          </Text>
+          <Text variant="caption" style={styles.emptyNote}>
+            Similar songs play after your queue
+          </Text>
+          {autoplay.map((track, k) => (
+            <QueueRow key={`auto:${autoFrom + k}:${track.key}`} track={track} abs={autoFrom + k} dragging={false} offset={0} handle={null} />
+          ))}
+        </>
+      ) : null}
     </ScrollView>
   );
 }
 
-function QueueRow({ track, abs, dragging, offset, handle }: { track: AppTrack; abs: number; dragging: boolean; offset: number; handle: object }) {
+/** `handle`: drag props for the artwork handle; null for a row that can't be reordered (an autoplay song). */
+function QueueRow({ track, abs, dragging, offset, handle }: { track: AppTrack; abs: number; dragging: boolean; offset: number; handle: object | null }) {
   const styles = useStyles();
   const colors = useColors();
   const [hovered, setHovered] = useState(false);
@@ -200,8 +217,8 @@ function QueueRow({ track, abs, dragging, offset, handle }: { track: AppTrack; a
           accessibilityLabel={spokenLabel(`Play ${track.title} by ${track.artist}`)}
           onPress={() => player.jumpTo(abs)}
           style={styles.rowMain}>
-          <View style={styles.handle} {...handle} accessibilityLabel="Drag to reorder">
-            {hovered || dragging ? (
+          <View style={styles.handle} {...(handle ?? {})} accessibilityLabel={handle ? 'Drag to reorder' : undefined}>
+            {handle && (hovered || dragging) ? (
               <Icon name="reorder-three" size={16} color={colors.textSecondary} />
             ) : (
               <Artwork uri={track.artworkUri} label={track.album || track.title} size={40} recyclingKey={track.key} />

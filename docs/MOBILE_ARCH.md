@@ -74,16 +74,20 @@ export type DownloadStatus = 'none' | 'queued' | 'downloading' | 'done' | 'error
   `playNext(tracks: AppTrack[])`, `addToQueue(tracks: AppTrack[])`, `removeFromQueue(index: number)`, `moveInQueue(from: number, to: number)`, `jumpTo(index: number)`,
   `setRepeat(mode: RepeatMode)`, `cycleRepeat()`, `toggleShuffle()`
 - `usePlayer<T>(selector: (s: PlayerState) => T): T` — zustand selector hook, where
-  `PlayerState = { queue: AppTrack[]; index: number; current: AppTrack | null; isPlaying: boolean; isBuffering: boolean; repeat: RepeatMode; shuffle: boolean; error: string | null; errorId: number /* increments per error */ }`
+  `PlayerState = { queue: AppTrack[]; index: number; autoFrom: number /* queue[autoFrom..] are autoplay songs */; current: AppTrack | null; isPlaying: boolean; isBuffering: boolean; repeat: RepeatMode; shuffle: boolean; error: string | null; errorId: number /* increments per error */ }`
 - `useProgress(): { positionMs: number; durationMs: number }` — ~4 Hz, isolated so only progress UI re-renders
 - Background playback + lock-screen / notification controls with title, artist, artwork are core's job.
 - Queue + position persisted (MMKV) and restored paused on cold start.
+- Autoplay (Settings → Playback, on by default): when what the user played runs out (one song, the end of an album)
+  the queue continues with related songs: same artist, then same album, then the rest of the library (server when it
+  answers, else this device's songs), each group shuffled. They are the queue's tail (`autoFrom`), shown as
+  "Autoplay" after Up next; queued songs go before them; none while repeat is on (`autoplay.ts`).
 - Audio backend: `core/player/audio.ts` (expo-audio) / `audio.web.ts` (web: ONE reused `<audio>` element + Media
   Session, so iOS keeps auto-advancing with the screen locked). The engine only talks to that module.
 - Engine decisions that don't need native are pure and unit-tested: `window.ts` (native window, Next/Previous
   index steps), `reach.ts` (offline vs back online), `stall.ts` (watchdog: hung connection → retry in the same
   player, wedged player → new player; how an error is taken), `upcoming.ts` (what the Queue shows next, repeat-all
-  wrap included).
+  wrap included), `autoplay.ts` (when autoplay fills, which songs, how the tail behaves).
 
 ### Web app (iPhone via Safari → Add to Home Screen)
 - Same code base, `expo export -p web`, hosted by the server (`WEB_DIR`). Streams only:

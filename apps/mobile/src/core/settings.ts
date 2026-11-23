@@ -17,6 +17,7 @@ const K_TOKEN = 'settings.accessToken';
 const K_ADMIN = 'settings.adminMode';
 const K_ADMIN_TOKEN = 'settings.adminToken';
 const K_LYRICS_ONLINE = 'settings.lyricsOnline';
+const K_AUTOPLAY = 'settings.autoplay';
 
 type SettingsValues = {
   serverUrl: string;
@@ -28,6 +29,8 @@ type SettingsValues = {
   adminToken: string;
   /** Look up lyrics of imported tracks on lrclib.net (server tracks use the server's lookup). */
   lyricsOnline: boolean;
+  /** When what the user played runs out, keep going with related songs (core/player/autoplay.ts). */
+  autoplay: boolean;
 };
 
 /** The web app is served by the Blednify server itself, so its own origin is the server. */
@@ -42,6 +45,7 @@ export const settingsStore = create<SettingsValues>(() => ({
   adminMode: kv.getBoolean(K_ADMIN) ?? false,
   adminToken: kv.getString(K_ADMIN_TOKEN) ?? '',
   lyricsOnline: kv.getBoolean(K_LYRICS_ONLINE) ?? true,
+  autoplay: kv.getBoolean(K_AUTOPLAY) ?? true,
 }));
 
 export const getServerBase = (): string => normalizeServerUrl(settingsStore.getState().serverUrl);
@@ -84,15 +88,21 @@ function setLyricsOnline(v: boolean) {
   settingsStore.setState({ lyricsOnline: v });
 }
 
+function setAutoplay(v: boolean) {
+  kv.set(K_AUTOPLAY, v);
+  settingsStore.setState({ autoplay: v });
+}
+
 export function useSettings(): SettingsValues & {
   setServerUrl(url: string): void;
   setDownloadOnWifiOnly(v: boolean): void;
   setAdminMode(v: boolean): void;
   setAdminToken(token: string): void;
   setLyricsOnline(v: boolean): void;
+  setAutoplay(v: boolean): void;
 } {
   const values = useStore(settingsStore, useShallow((s) => s));
-  return { ...values, setServerUrl, setDownloadOnWifiOnly, setAdminMode, setAdminToken, setLyricsOnline };
+  return { ...values, setServerUrl, setDownloadOnWifiOnly, setAdminMode, setAdminToken, setLyricsOnline, setAutoplay };
 }
 
 // ---------------------------------------------------------------------------------------------

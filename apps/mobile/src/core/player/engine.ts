@@ -44,14 +44,17 @@ import {
 import { addNetworkStateListener, getNetworkStateAsync } from 'expo-network';
 import { AppState, Platform } from 'react-native';
 
+import { apiGet, queryString, type ApiAlbum, type ApiArtist, type ApiPage, type ApiTrack } from '../api';
 import { authHeadersFor } from '../auth';
 import { libIndex } from '../lib-index';
-import { recordRecent } from '../library';
+import { fetchLocalLibrary, recordRecent } from '../library';
 import { isLocalHost } from '../hosts';
-import { getServerBase, kv } from '../settings';
-import { fromStorable, playsOffline, resolveTrack } from '../tracks';
+import { queryClient } from '../query-client';
+import { getServerBase, kv, settingsStore } from '../settings';
+import { fromApiTrack, fromStorable, playsOffline, resolveTrack } from '../tracks';
 import type { AppTrack, PlayerState, RepeatMode } from '../types';
-import { shuffled } from '../util';
+import { artistKey, shuffled } from '../util';
+import { autoplayWanted, planAutoplay, promoteAuto, restoredAutoFrom, shuffleChosen } from './autoplay';
 import { lockArtwork, prefetchLockArtwork } from './lock-art';
 import { fromRow, toRow, type QueueRow } from './queue-rows';
 import { playerStore, progressStore } from './store';
@@ -110,6 +113,12 @@ let entries: Entry[] = [];
 /** Unshuffled order; restored when shuffle is turned off. Same Entry objects as `entries`. */
 let original: Entry[] = [];
 let index = -1;
+/**
+ * Autoplay songs are `entries[autoFrom..]`, and the same Entry objects in the same order end `original` (see
+ * autoplay.ts): shuffle, "Play next" and "Add to queue" only ever touch what comes before them, and a song that starts
+ * playing stops being one (`promoteAuto`, in `publishQueue`/`publishIndex`).
+ */
+let autoFrom = 0;
 
 // --- Native window ---------------------------------------------------------------------------
 
@@ -247,20 +256,140 @@ function firstIndex(): number | null {
 }
 
 function publishQueue(extra?: Partial<PlayerState>) {
+  autoFrom = promoteAuto(index, autoFrom, entries.length);
   playerStore.setState({
     queue: entries.map((e) => e.track),
     index,
+    autoFrom,
     current: entries[index]?.track ?? null,
     ...extra,
   });
   persistState();
   scheduleQueuePersist();
+  scheduleAutoplay();
 }
 
 function publishIndex(extra?: Partial<PlayerState>) {
-  playerStore.setState({ index, current: entries[index]?.track ?? null, ...extra });
+  const was = autoFrom;
+  autoFrom = promoteAuto(index, autoFrom, entries.length);
+  playerStore.setState({ index, current: entries[index]?.track ?? null, ...(was !== autoFrom ? { autoFrom } : null), ...extra });
   persistState();
+  if (was !== autoFrom) scheduleQueuePersist();
+  scheduleAutoplay();
 }
+
+// --- Autoplay --------------------------------------------------------------------------------
+// When what the user started runs out (one song from Search, the end of an album), related songs follow (autoplay.ts):
+// other songs by the same artist, then the same album, then the rest of the library. Fetched from the server when it
+// answers, else from this device's library (imported files and downloads), so autoplay works offline too.
+
+/** The song autoplay is related to: the last one the user chose, kept while autoplay runs (reset by `playTracks`). */
+let autoSeed: AppTrack | null = null;
+let autoFill: Promise<void> | null = null;
+/** Bumped by `playTracks` and `stopAll`: a fill that started for another queue is dropped. */
+let queueGen = 0;
+/** After a fill found nothing new (the whole library is queued, nothing reachable), wait this long before asking again. */
+const AUTOPLAY_EMPTY_WAIT_MS = 60_000;
+let autoEmptyUntil = 0;
+const AUTOPLAY_FETCH_MS = 6_000;
+const AUTOPLAY_LIBRARY_PAGE = 400;
+
+function autoplayCount(): number {
+  return autoplayWanted({
+    enabled: settingsStore.getState().autoplay,
+    repeatOff: S().repeat === 'off',
+    index,
+    length: entries.length,
+    autoFrom,
+  });
+}
+
+function scheduleAutoplay() {
+  if (!restored || autoFill || Date.now() < autoEmptyUntil || autoplayCount() === 0) return;
+  autoFill = fillAutoplay()
+    .catch((e) => console.warn('[player] autoplay failed', e))
+    .finally(() => {
+      autoFill = null;
+    });
+}
+
+/** Candidates for autoplay: the server's songs by the seed's artist and on its album, a library page, and this device's. */
+async function autoplayPool(seed: AppTrack): Promise<{ artist: AppTrack[]; album: AppTrack[]; library: AppTrack[] }> {
+  const local = await fetchLocalLibrary().catch(() => [] as AppTrack[]);
+  const base = getServerBase();
+  // Offline (or while a dropped connection is retried) the server isn't asked: this device's songs are what plays.
+  if (!base || offlineOnly || netRetry) return { artist: [], album: [], library: local };
+  const get = <T,>(path: string) => apiGet<T>(base, path, undefined, AUTOPLAY_FETCH_MS);
+  const remote = seed.origin === 'remote';
+  const libraryPage = async (): Promise<ApiTrack[]> => {
+    const all = queryClient.getQueryData<ApiTrack[]>(['tracks', base, 'all']);
+    if (all?.length) return all;
+    const first = await get<ApiPage<ApiTrack>>(`/api/tracks${queryString({ sort: 'added', limit: AUTOPLAY_LIBRARY_PAGE })}`);
+    if (first.total <= first.items.length) return first.items;
+    // A big library: add a page from somewhere random, so "the rest of the library" isn't only the newest songs.
+    const offset = Math.floor(Math.random() * (first.total - AUTOPLAY_LIBRARY_PAGE));
+    const more = await get<ApiPage<ApiTrack>>(`/api/tracks${queryString({ sort: 'added', limit: AUTOPLAY_LIBRARY_PAGE, offset })}`).catch(() => null);
+    return more ? [...first.items, ...more.items] : first.items;
+  };
+  const [artist, album, library] = await Promise.allSettled([
+    remote && seed.artistId
+      ? get<ApiArtist & { tracks: ApiTrack[] }>(`/api/artists/${encodeURIComponent(seed.artistId)}`).then((a) => a.tracks)
+      : [],
+    remote && seed.albumId
+      ? get<ApiAlbum & { tracks: ApiTrack[] }>(`/api/albums/${encodeURIComponent(seed.albumId)}`).then((a) => a.tracks)
+      : [],
+    libraryPage(),
+  ]);
+  // Unreachable or refused: that part is just empty (the device's own songs still count).
+  const tracks = (r: PromiseSettledResult<ApiTrack[]>) =>
+    r.status === 'fulfilled' && Array.isArray(r.value) ? r.value.map((t) => fromApiTrack(t, base)) : [];
+  return { artist: tracks(artist), album: tracks(album), library: [...tracks(library), ...local] };
+}
+
+async function fillAutoplay(): Promise<void> {
+  const gen = queueGen;
+  const seed = autoSeed ?? entries[Math.max(autoFrom - 1, index)]?.track;
+  if (!seed) return;
+  autoSeed = seed;
+  const pool = await autoplayPool(seed);
+  const want = autoplayCount();
+  if (gen !== queueGen || want === 0) return;
+  let picks = planAutoplay({
+    seed,
+    ...pool,
+    exclude: new Set(entries.map((e) => e.track.key)),
+    limit: want,
+    shuffle: shuffled,
+    keyOf: artistKey,
+  });
+  // Playing only downloads: a streamed song would just be stepped over.
+  if (offlineOnly) picks = picks.filter((t) => playsOffline(t));
+  if (!picks.length) {
+    autoEmptyUntil = Date.now() + AUTOPLAY_EMPTY_WAIT_MS;
+    return;
+  }
+  const add = picks.map((t) => toEntry(resolveTrack(t)));
+  entries = [...entries, ...add];
+  original = [...original, ...add];
+  publishQueue();
+  syncWindow();
+}
+
+/** Drop the autoplay songs still to come (autoplay turned off, repeat turned on). */
+function dropAutoplay() {
+  if (autoFrom >= entries.length) return;
+  const tail = new Set(entries.slice(autoFrom));
+  entries = entries.slice(0, autoFrom);
+  original = original.filter((e) => !tail.has(e));
+  publishQueue();
+  syncWindow();
+}
+
+settingsStore.subscribe((s, prev) => {
+  if (s.autoplay === prev.autoplay) return;
+  if (s.autoplay) scheduleAutoplay();
+  else dropAutoplay();
+});
 
 function setProgress(positionMs: number, durationMs: number) {
   const p = progressStore.getState();
@@ -614,6 +743,9 @@ function stopAll() {
   entries = [];
   original = [];
   index = -1;
+  autoFrom = 0;
+  autoSeed = null;
+  queueGen++;
   resetTrackCounters();
   progressStore.setState({ positionMs: 0, durationMs: 0 });
   publishQueue({ isPlaying: false, isBuffering: false });
@@ -801,6 +933,24 @@ function onNativeFinished() {
     load(ni, true);
     return;
   }
+  // The song ended before autoplay songs arrived (a slow server): carry on once they do.
+  scheduleAutoplay();
+  const fill = autoFill;
+  if (fill) {
+    const uid = entries[index]?.uid;
+    playerStore.setState({ isBuffering: true });
+    void fill.then(() => {
+      if (entries[index]?.uid !== uid || !wantPlay) return;
+      const n = nextIndex();
+      if (n !== null && n !== index) load(n, true);
+      else endOfQueue();
+    });
+    return;
+  }
+  endOfQueue();
+}
+
+function endOfQueue() {
   wantPlay = false;
   kv.set(POSITION_KEY, 0);
   load(0, false);
@@ -1024,7 +1174,8 @@ function onPlaybackError(message: string, network = false, recreate = false, sto
 // mini player has its song on the first frame; the queue itself is parsed after first paint (`restoreQueue`, from
 // startCore) or, at the latest, on the first player call.
 
-type PersistedQueue = { rows: QueueRow[]; original: number[] };
+/** `auto`: how many songs at the end are autoplay ones (absent before autoplay, read as none). */
+type PersistedQueue = { rows: QueueRow[]; original: number[]; auto?: number };
 type LegacyQueue = { queue: AppTrack[]; original: number[] };
 type PersistedState = { index: number; repeat: RepeatMode; shuffle: boolean; cur?: QueueRow };
 
@@ -1066,6 +1217,7 @@ function persistQueueNow() {
   const data: PersistedQueue = {
     rows: entries.map((e) => toRow(e.track)),
     original: original.map((e) => pos.get(e.uid) ?? -1).filter((i) => i >= 0),
+    ...(autoFrom < entries.length ? { auto: entries.length - autoFrom } : null),
   };
   const json = JSON.stringify(data);
   // Many publishes only change URIs (a download landed), which rows don't store.
@@ -1108,12 +1260,14 @@ export function restoreQueue() {
   try {
     let tracks: (AppTrack | null)[] = [];
     let order: unknown = [];
+    let autoCount: unknown = 0;
     const raw = kv.getString(QUEUE_KEY);
     if (raw) {
       lastQueueJson = raw;
       const q = JSON.parse(raw) as Partial<PersistedQueue>;
       tracks = Array.isArray(q.rows) ? q.rows.map((r) => fromRow(r)) : [];
       order = q.original;
+      autoCount = q.auto;
     } else {
       const legacy = kv.getString(LEGACY_QUEUE_KEY);
       if (legacy) {
@@ -1137,6 +1291,12 @@ export function restoreQueue() {
       orig.length === entries.length && new Set(orig).size === entries.length && orig.every((i) => i >= 0)
         ? orig.map((i) => entries[i])
         : entries.slice();
+    // Autoplay songs (the last `auto` rows) are kept only while they still end both orders the same way.
+    const savedFrom = tracks.length - (typeof autoCount === 'number' && autoCount > 0 ? Math.min(autoCount, tracks.length) : 0);
+    const from = at.slice(0, savedFrom).filter((i) => i >= 0).length;
+    const n = entries.length - from;
+    const tailOk = n > 0 && entries.slice(from).every((e, k) => original[original.length - n + k] === e);
+    autoFrom = tailOk ? from : entries.length;
     index = entries.length ? Math.min(Math.max(Number(st.index) || 0, 0), entries.length - 1) : -1;
     // The state key is written right away and the queue a little later; after a crash in between, find the song.
     const curKey = Array.isArray(st.cur) ? st.cur[0] : null;
@@ -1144,15 +1304,17 @@ export function restoreQueue() {
       const i = entries.findIndex((e) => e.track.key === curKey);
       if (i >= 0) index = i;
     }
+    autoFrom = restoredAutoFrom(entries.length, entries.length - autoFrom, index);
   } catch (e) {
     console.warn('[player] could not restore queue', e);
     entries = [];
     original = [];
     index = -1;
+    autoFrom = 0;
   }
   const current = entries[index]?.track ?? null;
   const shownKey = S().current?.key;
-  playerStore.setState({ queue: entries.map((e) => e.track), index, current });
+  playerStore.setState({ queue: entries.map((e) => e.track), index, autoFrom, current });
   if (!st.cur || current?.key !== shownKey)
     progressStore.setState({ positionMs: current ? (kv.getNumber(POSITION_KEY) ?? 0) : 0, durationMs: current?.durationMs ?? 0 });
   if (migrated) {
@@ -1195,6 +1357,7 @@ export function removeKeysFromQueue(keys: ReadonlySet<string>) {
   const curUid = entries[index]?.uid;
   const curRemoved = !!entries[index] && keys.has(entries[index].track.key);
   const firstAfter = entries.slice(index).find((e) => !keys.has(e.track.key))?.uid;
+  autoFrom = entries.slice(0, autoFrom).filter((e) => !keys.has(e.track.key)).length;
   entries = entries.filter((e) => !keys.has(e.track.key));
   original = original.filter((e) => !keys.has(e.track.key));
   if (!entries.length) return stopAll();
@@ -1240,6 +1403,8 @@ function play() {
   startNative();
   armWatchdog();
   playerStore.setState({ isPlaying: true, error: null });
+  // A restored queue on its last song: have the autoplay songs ready before it ends.
+  scheduleAutoplay();
 }
 
 function pause() {
@@ -1320,6 +1485,11 @@ function playTracks(tracks: AppTrack[], startIndex?: number, opts?: { shuffle?: 
   const shuffle = opts?.shuffle ?? S().shuffle;
   original = list;
   errorStreak = 0;
+  // A new context: autoplay (if it runs out) follows this one.
+  autoFrom = list.length;
+  autoSeed = null;
+  autoEmptyUntil = 0;
+  queueGen++;
   if (shuffle) {
     const start = startIndex ?? Math.floor(Math.random() * list.length);
     const first = list[Math.min(Math.max(start, 0), list.length - 1)];
@@ -1341,6 +1511,8 @@ function playNext(tracks: AppTrack[]) {
   entries = [...entries.slice(0, index + 1), ...add, ...entries.slice(index + 1)];
   const oi = original.indexOf(cur);
   original = [...original.slice(0, oi + 1), ...add, ...original.slice(oi + 1)];
+  // The current song is never an autoplay one (`promoteAuto`), so these land before the autoplay songs.
+  autoFrom += add.length;
   publishQueue();
   syncWindow();
 }
@@ -1349,8 +1521,11 @@ function addToQueue(tracks: AppTrack[]) {
   if (!tracks.length) return;
   const add = tracks.map(toEntry);
   const wasEmpty = !entries.length;
-  entries = [...entries, ...add];
-  original = [...original, ...add];
+  // After what the user chose, before the autoplay songs: queued songs play first.
+  const autoCount = entries.length - autoFrom;
+  entries = [...entries.slice(0, autoFrom), ...add, ...entries.slice(autoFrom)];
+  original = [...original.slice(0, original.length - autoCount), ...add, ...original.slice(original.length - autoCount)];
+  autoFrom += add.length;
   if (wasEmpty) {
     index = 0;
     natReady = false;
@@ -1366,6 +1541,7 @@ function removeFromQueue(i: number) {
   if (!e) return;
   entries = entries.filter((_, j) => j !== i);
   original = original.filter((x) => x !== e);
+  if (i < autoFrom) autoFrom--;
   if (!entries.length) return stopAll();
   if (i < index) {
     index--;
@@ -1383,7 +1559,8 @@ function removeFromQueue(i: number) {
 }
 
 function moveInQueue(from: number, to: number) {
-  if (from === to || !entries[from] || to < 0 || to >= entries.length) return;
+  // Moves stay among the songs the user chose (the Queue drags only "Up next"); autoplay songs keep their order.
+  if (from === to || !entries[from] || to < 0 || to >= autoFrom || from >= autoFrom) return;
   const curUid = entries[index]?.uid;
   const list = entries.slice();
   const [moved] = list.splice(from, 1);
@@ -1400,12 +1577,23 @@ function jumpTo(i: number) {
   if (!entries[i]) return;
   errorStreak = 0;
   playerStore.setState({ error: null });
+  if (i > autoFrom && i > index) {
+    // A tap further down the autoplay songs: the ones it skips over are dropped, not left behind as played.
+    const skipped = new Set(entries.slice(autoFrom, i));
+    entries = entries.filter((e) => !skipped.has(e));
+    original = original.filter((e) => !skipped.has(e));
+    i = autoFrom;
+    publishQueue();
+  }
   load(i, true);
 }
 
 function setRepeat(mode: RepeatMode) {
   playerStore.setState({ repeat: mode });
   applyLoop();
+  // Repeat keeps its meaning: no autoplay while it is on (and back when it is off again).
+  if (mode !== 'off') dropAutoplay();
+  else scheduleAutoplay();
   syncWindow();
   persistState();
 }
@@ -1421,7 +1609,8 @@ function toggleShuffle() {
   const cur = entries[index];
   if (cur) {
     if (shuffle) {
-      entries = [cur, ...shuffled(original.filter((e) => e !== cur))];
+      // Only what the user chose is shuffled; the autoplay songs stay last, in their order.
+      entries = shuffleChosen(original, cur, entries.length - autoFrom, shuffled);
       index = 0;
     } else {
       entries = original.slice();

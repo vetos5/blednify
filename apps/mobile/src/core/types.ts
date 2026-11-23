@@ -73,6 +73,11 @@ export type DownloadStatus = 'none' | 'queued' | 'downloading' | 'done' | 'error
 export type PlayerState = {
   queue: AppTrack[];
   index: number;
+  /**
+   * Autoplay songs are `queue[autoFrom..]` (see core/player/autoplay.ts): related songs the player added after what
+   * the user chose. Equal to the queue length when there are none.
+   */
+  autoFrom: number;
   current: AppTrack | null;
   isPlaying: boolean;
   isBuffering: boolean;

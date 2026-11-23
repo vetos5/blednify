@@ -195,6 +195,15 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
+        <Section title="Playback" icon="play-forward-outline">
+          <ToggleRow
+            title="Autoplay similar songs"
+            caption="When what you play runs out, keep going with more by the same artist, then the same album, then the rest of your library."
+            value={settings.autoplay}
+            onChange={settings.setAutoplay}
+          />
+        </Section>
+
         {fileStorageSupported ? (
           <Section title="Downloads" icon="arrow-down-circle-outline">
             <ToggleRow

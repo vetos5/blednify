@@ -71,9 +71,10 @@ function QueueScreenContent() {
   const index = usePlayer((s) => s.index);
   const isPlaying = usePlayer((s) => s.isPlaying);
   const repeatAll = usePlayer((s) => s.repeat === 'all');
+  const autoFrom = usePlayer((s) => s.autoFrom);
   const current = queue[index] ?? null;
 
-  const { ahead, wrapped } = upcoming(index, queue.length, repeatAll);
+  const { ahead, wrapped, autoplay } = upcoming(index, queue.length, repeatAll, autoFrom);
   const upNext: Item[] = ahead.map((i) => ({ track: queue[i], abs: i, rel: i - index - 1 }));
 
   const from = useSharedValue(-1);
@@ -209,7 +210,7 @@ function QueueScreenContent() {
             </View>
           }
           ListEmptyComponent={
-            wrapped.length > 0 ? undefined : (
+            wrapped.length > 0 || autoplay.length > 0 ? undefined : (
               <EmptyState
                 icon={repeatAll ? 'repeat' : 'list-outline'}
                 title={repeatAll ? 'This song plays again' : 'Nothing up next'}
@@ -217,7 +218,18 @@ function QueueScreenContent() {
               />
             )
           }
-          ListFooterComponent={wrapped.length > 0 ? <FromTheTop indices={wrapped} queue={queue} rowH={rowHeight} /> : undefined}
+          ListFooterComponent={
+            wrapped.length > 0 || autoplay.length > 0 ? (
+              <>
+                {autoplay.length > 0 ? (
+                  <MoreSection title="AUTOPLAY" hint="Similar songs play after your queue" indices={autoplay} queue={queue} rowH={rowHeight} />
+                ) : null}
+                {wrapped.length > 0 ? (
+                  <MoreSection title="THEN FROM THE TOP" hint="Repeat all is on" indices={wrapped} queue={queue} rowH={rowHeight} />
+                ) : null}
+              </>
+            ) : undefined
+          }
           renderItem={({ item }) => <QueueRow item={item} drag={drag} rowH={rowHeight} onDragStart={startDrag} onDragEnd={endDrag} />}
         />
         {ghost ? <Ghost track={ghost.track} drag={drag} rowH={rowHeight} /> : null}
@@ -375,11 +387,26 @@ const QueueRow = memo(function QueueRow({
   );
 });
 
-/** Rows shown at most under "Then from the top"; a long queue says how many more. */
+/** Rows shown at most under "Autoplay" or "Then from the top"; a long list says how many more. */
 const WRAPPED_ROWS = 30;
 
-/** Repeat all: what plays after the last song (the queue's head). Tap to play; reorder happens up top. */
-function FromTheTop({ indices, queue, rowH }: { indices: number[]; queue: readonly AppTrack[]; rowH: number }) {
+/**
+ * What plays after "Up next" without being in it: the autoplay songs (related songs after what the user chose), or
+ * with repeat all the queue's head. Tap to play; reorder happens up top.
+ */
+function MoreSection({
+  title,
+  hint,
+  indices,
+  queue,
+  rowH,
+}: {
+  title: string;
+  hint: string;
+  indices: number[];
+  queue: readonly AppTrack[];
+  rowH: number;
+}) {
   const styles = useStyles();
   const colors = useColors();
   const shown = indices.slice(0, WRAPPED_ROWS);
@@ -387,14 +414,16 @@ function FromTheTop({ indices, queue, rowH }: { indices: number[]; queue: readon
   return (
     <View>
       <View style={styles.upNextHeader}>
-        <Text variant="micro">THEN FROM THE TOP · {indices.length}</Text>
+        <Text variant="micro">
+          {title} · {indices.length}
+        </Text>
         <Text variant="caption" style={styles.hint}>
-          Repeat all is on
+          {hint}
         </Text>
       </View>
       {shown.map((i) => (
         <Pressable
-          key={`top:${i}:${queue[i].key}`}
+          key={`${title}:${i}:${queue[i].key}`}
           style={[styles.rowPress, styles.wrappedRow, { height: rowH }]}
           accessibilityRole="button"
           accessibilityLabel={spokenLabel(`Play ${queue[i].title} by ${queue[i].artist}`)}

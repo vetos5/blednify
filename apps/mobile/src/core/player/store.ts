@@ -6,6 +6,7 @@ import { playButtonLabel, playButtonMode, type PlayButtonMode } from './stall';
 export const playerStore = create<PlayerState>(() => ({
   queue: [],
   index: -1,
+  autoFrom: 0,
   current: null,
   isPlaying: false,
   isBuffering: false,
