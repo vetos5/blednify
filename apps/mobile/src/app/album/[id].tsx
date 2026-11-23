@@ -36,7 +36,7 @@ export default function AlbumScreen() {
   const params = useLocalSearchParams<{ id: string; origin?: string }>();
   const origin = parseOrigin(params.origin);
   const insets = useSafeAreaInsets();
-  const { scrollY, offsetY, onScroll } = useScrimScroll(DETAIL_GLOW_HEIGHT);
+  const { scrollY, offsetY, renderScrollComponent } = useScrimScroll(DETAIL_GLOW_HEIGHT);
   const chromeInset = useChromeInset('detail');
   // What's cached draws on the first frame; anything fetched mid-slide waits until the push has finished.
   const { album, tracks, isLoading, unreachable, retry } = useHeldDuringTransition(useAlbum(params.id, origin));
@@ -55,7 +55,7 @@ export default function AlbumScreen() {
       .join(' · ');
     body = (
       <FlashList
-        onScroll={onScroll}
+        renderScrollComponent={renderScrollComponent}
         scrollEventThrottle={16}
         data={tracks}
         keyExtractor={(t) => t.key}

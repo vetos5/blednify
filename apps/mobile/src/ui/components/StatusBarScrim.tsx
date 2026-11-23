@@ -1,10 +1,12 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Platform, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { useCallback, useEffect, useRef, useState, type ComponentRef, type ReactElement, type ReactNode, type Ref } from 'react';
+import { Platform, ScrollView, View, type ScrollViewProps } from 'react-native';
 import Animated, {
   interpolate,
   useAnimatedReaction,
+  useAnimatedRef,
   useAnimatedStyle,
+  useScrollOffset,
   useSharedValue,
   type SharedValue,
 } from 'react-native-reanimated';
@@ -27,9 +29,15 @@ const UNMOUNT_AFTER_MS = 1500;
 /** When a page's copy is mounted (invisible) after the page lays out: after its opening transition, before a fling. */
 const WARM_AFTER_MS = 400;
 
+type ScrollNode = ComponentRef<typeof ScrollView>;
+type ScrollComponent = (props: ScrollViewProps & { ref?: Ref<ScrollNode> }) => ReactElement;
+
 /**
- * Scroll wiring for lists that can't take a Reanimated scroll handler (FlashList): a plain onScroll that feeds the
- * scrim. Only the first FADE_PX matter, so past that nothing is written and a long scroll costs no extra work.
+ * Scroll wiring for FlashList pages (album, playlist, artist), which can't take a Reanimated scroll handler (the list
+ * needs its own JS onScroll): pass `renderScrollComponent` to the list. The scroll offset is read on the UI thread
+ * from the list's native scroll view (`useScrollOffset`), so the band moves in the same frame as the content. A JS
+ * onScroll ran a frame or two behind native, and the first frames of a fast fling showed the cover or title under
+ * the clock before the band came in. Only the first FADE_PX matter, so past that nothing is written.
  *
  * `follow` also tracks the offset itself up to that many px (`offsetY`), for a band that copies a background which
  * scrolls with the content (a detail page's cover glow): past it the copy no longer changes, so writes stop again.
@@ -37,23 +45,39 @@ const WARM_AFTER_MS = 400;
 export function useScrimScroll(follow = 0): {
   scrollY: SharedValue<number>;
   offsetY: SharedValue<number>;
-  onScroll: (e: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  renderScrollComponent: ScrollComponent;
 } {
   const scrollY = useSharedValue(0);
   const offsetY = useSharedValue(0);
-  const onScroll = useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const raw = Math.max(e.nativeEvent.contentOffset.y, 0);
-      const y = Math.min(raw, FADE_PX);
+  const scrollRef = useAnimatedRef<ScrollNode>();
+  const raw = useScrollOffset(scrollRef);
+  useAnimatedReaction(
+    () => Math.max(raw.get(), 0),
+    (at) => {
+      const y = Math.min(at, FADE_PX);
       if (scrollY.get() !== y) scrollY.set(y);
       if (follow > 0) {
-        const o = Math.min(raw, follow);
+        const o = Math.min(at, follow);
         if (offsetY.get() !== o) offsetY.set(o);
       }
     },
-    [scrollY, offsetY, follow],
   );
-  return { scrollY, offsetY, onScroll };
+  // FlashList calls this as a plain function with its own ref; the scroll view gets both refs. Stable per page (the
+  // list rebuilds its scroller when it changes).
+  const renderScrollComponent = useCallback<ScrollComponent>(
+    ({ ref, ...props }) => (
+      <ScrollView
+        {...props}
+        ref={(node) => {
+          scrollRef(node);
+          if (typeof ref === 'function') ref(node);
+          else if (ref) (ref as { current: ScrollNode | null }).current = node;
+        }}
+      />
+    ),
+    [scrollRef],
+  );
+  return { scrollY, offsetY, renderScrollComponent };
 }
 
 /**

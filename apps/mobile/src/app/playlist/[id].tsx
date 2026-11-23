@@ -29,7 +29,7 @@ export default function PlaylistScreen() {
   const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  const { scrollY, offsetY, onScroll } = useScrimScroll(DETAIL_GLOW_HEIGHT);
+  const { scrollY, offsetY, renderScrollComponent } = useScrimScroll(DETAIL_GLOW_HEIGHT);
   const chromeInset = useChromeInset('detail');
   const { playlist, tracks } = usePlaylist(id);
   const settled = useAfter(500);
@@ -66,7 +66,7 @@ export default function PlaylistScreen() {
     <ChromeHost overlay={<DockedMiniPlayer />}>
       <Backdrop />
       <FlashList
-        onScroll={onScroll}
+        renderScrollComponent={renderScrollComponent}
         scrollEventThrottle={16}
         data={tracks}
         keyExtractor={(t, i) => `${i}:${t.key}`}

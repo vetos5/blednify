@@ -38,7 +38,7 @@ export default function ArtistScreen() {
   const params = useLocalSearchParams<{ id: string; origin?: string }>();
   const origin = parseOrigin(params.origin);
   const insets = useSafeAreaInsets();
-  const { scrollY, offsetY, onScroll } = useScrimScroll(DETAIL_GLOW_HEIGHT);
+  const { scrollY, offsetY, renderScrollComponent } = useScrimScroll(DETAIL_GLOW_HEIGHT);
   const chromeInset = useChromeInset('detail');
   const cardW = useRailCardWidth();
   const { artist, albums, tracks, isLoading, unreachable, retry } = useArtist(params.id, origin);
@@ -77,7 +77,7 @@ export default function ArtistScreen() {
     <ChromeHost overlay={<DockedMiniPlayer />}>
       <Backdrop />
       <FlashList
-        onScroll={onScroll}
+        renderScrollComponent={renderScrollComponent}
         scrollEventThrottle={16}
         data={tracks}
         keyExtractor={(t) => t.key}
