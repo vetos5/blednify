@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   player,
+  recheckServer,
   useLikedTracks,
   useLocalAlbums,
   useLocalTracks,
@@ -105,6 +106,8 @@ export default function HomeScreen() {
     setRefreshing(true);
     newOnServer.refetch();
     remoteAlbums.refetch();
+    // Pulling also asks whether the server is there (the "Server offline" card otherwise waits for its next poll).
+    recheckServer();
     // Queries are stale-while-revalidate; the spinner is only a gesture acknowledgement.
     setTimeout(() => setRefreshing(false), 700);
   }, [newOnServer, remoteAlbums]);

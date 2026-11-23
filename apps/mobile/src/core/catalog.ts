@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { addNetworkStateListener, type NetworkState } from 'expo-network';
 import { useStore } from 'zustand';
 
@@ -70,9 +70,20 @@ export function useServerStatus(): {
     queryFn: ({ signal }) => apiGet<ApiHealth>(base, '/api/health', signal, 5_000, token),
     enabled: !!base,
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    // While the server doesn't answer, ask more often, so "Server offline" clears soon after it is back.
+    refetchInterval: (query) => (query.state.status === 'error' ? 10_000 : 60_000),
     retry: 0,
   });
+  // Back after failing: the lists that failed with it (Home's "New on server", albums) load again on their own.
+  const failed = useRef(false);
+  useEffect(() => {
+    if (q.status === 'error') failed.current = true;
+    else if (q.status === 'success' && failed.current) {
+      failed.current = false;
+      void queryClient.invalidateQueries({ queryKey: ['tracks', base] });
+      void queryClient.invalidateQueries({ queryKey: ['albums', base] });
+    }
+  }, [q.status, base]);
   // A server that requires a token answers health without the track count until it is given one.
   const needsToken = !!q.data?.authRequired && !token;
   return {
@@ -82,6 +93,11 @@ export function useServerStatus(): {
     isLoading: !!base && q.isLoading,
     serverUrl: base,
   };
+}
+
+/** Ask the server again now whether it answers (Home's pull to refresh), instead of at the next poll. */
+export function recheckServer(): void {
+  void queryClient.invalidateQueries({ queryKey: ['health'] });
 }
 
 /** Probes a server address with an optional access token (before it is saved). */

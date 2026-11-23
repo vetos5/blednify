@@ -944,6 +944,8 @@ function onStatus(s: NativeStatus) {
       if (netRetry) {
         cancelNetworkRetry();
         playerStore.setState({ error: null });
+        // The server is back: Home and Settings stop saying "Server offline" now, not at their next health poll.
+        void queryClient.invalidateQueries({ queryKey: ['health'] });
       }
     }
     const now = Date.now();

@@ -17,6 +17,7 @@ export { serverUrlProblem } from './api';
 
 // Server catalog
 export {
+  recheckServer,
   testServer,
   useAlbum,
   useAllRemoteTracks,
