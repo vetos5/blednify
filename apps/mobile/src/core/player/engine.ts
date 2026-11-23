@@ -154,6 +154,8 @@ let pendingSeekMs: number | null = null;
 /** Target of the latest seek; progress holds there until native reports arriving (or the guard expires). */
 let seekGuard: { ms: number; until: number } | null = null;
 let curLoaded = false;
+/** The deferred seek to the place a reload or retry was heading for (`pendingSeekMs`) is under way on a loaded song. */
+let seekInFlight = false;
 /** Native has reported playing (loaded) since the last load or play; until then the watchdog runs. */
 let started = false;
 /** Playback errors since native last played; the second one recreates the player (see `onPlaybackError`). */
@@ -447,6 +449,8 @@ function livePositionMs(): number {
  * STALL_MS, in a new player at the same position; a second one is reported and handled like a dropped connection.
  * A streamed song first asks the server: when it doesn't answer, the connection hangs (Wi-Fi without internet, a
  * dead zone) and the player is fine, so it is one more network failure, retried in place (`stallAction`).
+ * Once native has loaded the song the window counts from there (`onStatus`), and a loaded song still seeking to its
+ * place gets another (`settling`): an outage retry that loads late is slow, not wedged.
  */
 function armWatchdog() {
   clearWatchdog();
@@ -475,9 +479,13 @@ async function onStall(uid: number, quiet: boolean, answers?: boolean): Promise<
     streams: !!cur && !playsOffline(cur.track),
     quiet,
     serverAnswers: answers,
+    settling: seekInFlight && curLoaded,
   });
   switch (action) {
     case 'none':
+      return;
+    case 'rearm':
+      armWatchdog();
       return;
     case 'started':
       started = true;
@@ -844,7 +852,12 @@ function onStatus(s: NativeStatus) {
   }
 
   const cur = entries[index]?.track;
-  if (s.isLoaded && !curLoaded) curLoaded = true;
+  if (s.isLoaded && !curLoaded) {
+    curLoaded = true;
+    // The watchdog was armed when the load (or an outage retry) began: count its window from the load now, so a load
+    // that finished late isn't taken for a wedged player while it seeks and starts (it recreated a resumed song).
+    if (!started) armWatchdog();
+  }
   if (s.isLoaded && s.playing && !started) {
     started = true;
     errorsSincePlaying = 0;
@@ -853,10 +866,12 @@ function onStatus(s: NativeStatus) {
   if (s.isLoaded && pendingSeekMs !== null) {
     const ms = pendingSeekMs;
     pendingSeekMs = null;
+    seekInFlight = true;
     void nat
       ?.seekTo(ms / 1000)
       .catch(() => undefined)
       .finally(() => {
+        seekInFlight = false;
         if (wantPlay) startNative();
       });
     return;

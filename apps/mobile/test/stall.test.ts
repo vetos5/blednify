@@ -35,6 +35,15 @@ describe('stallAction (watchdog fired before the song started)', () => {
     expect(stallAction({ ...base, streams: false })).toBe('reload-new-player');
     expect(stallAction({ ...base, streams: false, quiet: false })).toBe('report-recreate');
   });
+  test('an outage retry that loaded late and is still seeking to its place is given time, never recreated', () => {
+    expect(stallAction({ ...base, settling: true })).toBe('rearm');
+    expect(stallAction({ ...base, settling: true, serverAnswers: true })).toBe('rearm');
+    expect(stallAction({ ...base, settling: true, quiet: false, streams: false })).toBe('rearm');
+  });
+  test('settling never hides a song that plays or one the user left', () => {
+    expect(stallAction({ ...base, settling: true, nativePlaying: true })).toBe('started');
+    expect(stallAction({ ...base, settling: true, current: false })).toBe('none');
+  });
 });
 
 describe('errorPlan', () => {

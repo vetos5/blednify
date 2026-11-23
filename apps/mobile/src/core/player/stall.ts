@@ -22,12 +22,20 @@ export type StallInput = {
   quiet: boolean;
   /** Result of the server health probe, once asked; undefined before. */
   serverAnswers?: boolean;
+  /**
+   * The song has loaded and the seek to its place (then the start) is still under way: a retry after an outage that
+   * finished loading late in the watchdog's window. Slow, not stuck; recreating the player there threw away a song
+   * that had just resumed.
+   */
+  settling?: boolean;
 };
 
 export type StallAction =
   | 'none'
   /** It is playing: mark started. */
   | 'started'
+  /** It loaded and is still seeking to its place: give it another full window. */
+  | 'rearm'
   /** Ask the server (GET /api/health) and decide again with `serverAnswers`. */
   | 'probe'
   /** The server can't be reached: a network failure, retried in the same player. */
@@ -37,9 +45,10 @@ export type StallAction =
   /** Again: report it and handle it like a dropped connection, in a new player. */
   | 'report-recreate';
 
-export function stallAction({ current, nativePlaying, streams, quiet, serverAnswers }: StallInput): StallAction {
+export function stallAction({ current, nativePlaying, streams, quiet, serverAnswers, settling }: StallInput): StallAction {
   if (!current) return 'none';
   if (nativePlaying) return 'started';
+  if (settling) return 'rearm';
   if (streams && serverAnswers === undefined) return 'probe';
   if (streams && !serverAnswers) return 'network-error';
   return quiet ? 'reload-new-player' : 'report-recreate';
