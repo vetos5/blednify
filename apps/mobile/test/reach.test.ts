@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { backOnlineVerdict, offlineVerdict } from '../src/core/player/reach';
+import { backOnlineVerdict, offlineVerdict, probeRetriesNow } from '../src/core/player/reach';
 
 const wifi = { isConnected: true, isInternetReachable: true, type: 'WIFI' };
 const cell = { isConnected: true, isInternetReachable: true, type: 'CELLULAR' };
@@ -38,5 +38,18 @@ describe('backOnlineVerdict (playing only downloads)', () => {
     expect(backOnlineVerdict(wifi, true)).toBe('probe');
     expect(backOnlineVerdict(none, true)).toBe('offline');
     expect(backOnlineVerdict({ isConnected: null }, true)).toBe('offline');
+  });
+});
+
+describe('probeRetriesNow (server probe during a network retry)', () => {
+  test('the server coming back retries at once', () => {
+    expect(probeRetriesNow({ answers: true, answeredBefore: false, waiting: true })).toBe(true);
+  });
+  test('still down, or an attempt already under way: nothing', () => {
+    expect(probeRetriesNow({ answers: false, answeredBefore: false, waiting: true })).toBe(false);
+    expect(probeRetriesNow({ answers: true, answeredBefore: false, waiting: false })).toBe(false);
+  });
+  test('answering health while the stream keeps failing leaves it to the backoff', () => {
+    expect(probeRetriesNow({ answers: true, answeredBefore: true, waiting: true })).toBe(false);
   });
 });

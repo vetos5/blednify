@@ -59,7 +59,7 @@ import { lockArtwork, prefetchLockArtwork } from './lock-art';
 import { fromRow, toRow, type QueueRow } from './queue-rows';
 import { playerStore, progressStore } from './store';
 import { errorPlan, publishedPlayState, retrySeekMs, stallAction, statusSetsPosition } from './stall';
-import { backOnlineVerdict, LAN_REPROBE_MS, offlineVerdict, PROBE_TIMEOUT_MS, type NetState } from './reach';
+import { backOnlineVerdict, LAN_REPROBE_MS, offlineVerdict, PROBE_TIMEOUT_MS, probeRetriesNow, RETRY_PROBE_MS, type NetState } from './reach';
 import { nextIndexIn, planTail, planWindow, prevIndexIn, resolveNativeMove, WINDOW_AHEAD, type Slot as WindowSlot } from './window';
 
 type Entry = { uid: number; track: AppTrack };
@@ -169,8 +169,18 @@ let listenedMs = 0;
 let lastTimeS = 0;
 let recorded = false;
 let lastPositionSave = 0;
-/** A dropped connection being retried on the song `uid` (see "Connection loss" below). */
-let netRetry: { uid: number; attempt: number; since: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
+/**
+ * A dropped connection being retried on the song `uid` (see "Connection loss" below). `probe` asks the server every
+ * RETRY_PROBE_MS whether it is back; `answered` is what the last probe heard.
+ */
+let netRetry: {
+  uid: number;
+  attempt: number;
+  since: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  probe: ReturnType<typeof setInterval> | null;
+  answered: boolean;
+} | null = null;
 let netRetrySub: { remove(): void } | null = null;
 
 // --- Audio session ---------------------------------------------------------------------------
@@ -1021,6 +1031,7 @@ function isNetworkError(e: unknown): boolean {
 
 function cancelNetworkRetry() {
   if (netRetry?.timer) clearTimeout(netRetry.timer);
+  if (netRetry?.probe) clearInterval(netRetry.probe);
   netRetry = null;
   netRetrySub?.remove();
   netRetrySub = null;
@@ -1148,7 +1159,7 @@ function waitForNetwork(message: string) {
   if (!cur) return;
   if (!netRetry || netRetry.uid !== cur.uid) {
     cancelNetworkRetry();
-    netRetry = { uid: cur.uid, attempt: 0, since: Date.now(), timer: null };
+    netRetry = { uid: cur.uid, attempt: 0, since: Date.now(), timer: null, probe: null, answered: false };
     // Only the first failure is announced; retries stay quiet until one works or we give up.
     playerStore.setState({ error: `${message}. Retrying…`, errorId: S().errorId + 1, retrying: true });
     if (!playsOffline(cur.track)) skipToOfflineSongIfOffline(cur.uid);
@@ -1163,9 +1174,29 @@ function waitForNetwork(message: string) {
   playerStore.setState({ isPlaying: false, isBuffering: true });
   const delay = NETWORK_RETRY_MS[Math.min(r.attempt, NETWORK_RETRY_MS.length - 1)];
   r.timer = setTimeout(retryAfterNetworkError, delay);
+  // Resume as soon as the server answers again instead of at the next backoff tick (`probeRetriesNow`).
+  if (!r.probe && !playsOffline(cur.track)) r.probe = setInterval(() => void probeDuringRetry(r), RETRY_PROBE_MS);
   netRetrySub ??= addNetworkStateListener((net) => {
     if (net.isConnected !== false && netRetry?.timer) retryAfterNetworkError();
   });
+}
+
+let probing = false;
+
+async function probeDuringRetry(r: NonNullable<typeof netRetry>) {
+  if (probing || netRetry !== r) return;
+  probing = true;
+  try {
+    const answers = await serverAnswers();
+    if (netRetry !== r) return;
+    const waiting = r.timer !== null;
+    const now = probeRetriesNow({ answers, answeredBefore: r.answered, waiting });
+    // Heard during an attempt, an answer isn't acted on, so it mustn't use up the "server is back" edge either.
+    if (waiting) r.answered = answers;
+    if (now) retryAfterNetworkError();
+  } finally {
+    probing = false;
+  }
 }
 
 function onPlaybackError(message: string, network = false, recreate = false, stop = false) {
