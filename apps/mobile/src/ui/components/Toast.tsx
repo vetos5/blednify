@@ -1,13 +1,13 @@
 import { usePathname } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
-import Animated, { FadeInDown, FadeInUp, FadeOutDown, FadeOutUp } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeInUp, FadeOutDown, FadeOutUp, useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { usePlayer } from '@/core';
 
 import { HEADER_ROW_HEIGHT, PLAYER_BAR_HEIGHT, useIsWide } from '../layout';
-import { dismissToast, dropScreenToast, showToast, useOverlay, type ToastKind } from '../overlay';
+import { dismissToast, dropScreenToast, showToast, toastVeil, useOverlay, type ToastKind } from '../overlay';
 import { makeStyles, radius, space, useColors } from '../theme';
 import { Icon, type IconName } from './Icon';
 import { Text } from './Text';
@@ -30,9 +30,14 @@ export function ToastHost() {
   const wide = useIsWide();
   usePlaybackErrorToasts();
   useDropScreenToastsOnRouteChange();
+  // A dismiss gesture hides a dropped note from the UI thread (`veilScreenToast`); the wrapper, not the keyed toast,
+  // so its exit animation runs hidden instead of starting from opaque again.
+  const veil = useAnimatedStyle(() => ({ opacity: 1 - toastVeil.get() }));
   return (
     <TopLayer>
-      <View pointerEvents="box-none" style={[styles.host, wide ? { bottom: PLAYER_BAR_HEIGHT + space.lg } : { top: insets.top + HEADER_ROW_HEIGHT + space.xs }]}>
+      <Animated.View
+        pointerEvents="box-none"
+        style={[styles.host, wide ? { bottom: PLAYER_BAR_HEIGHT + space.lg } : { top: insets.top + HEADER_ROW_HEIGHT + space.xs }, veil]}>
         {toast ? (
           <Animated.View
             key={toast.id}
@@ -80,7 +85,7 @@ export function ToastHost() {
             ) : null}
           </Animated.View>
         ) : null}
-      </View>
+      </Animated.View>
     </TopLayer>
   );
 }

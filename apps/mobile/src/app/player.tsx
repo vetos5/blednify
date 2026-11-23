@@ -53,7 +53,7 @@ import { DesktopNowPlaying } from '@/ui/desktop/NowPlaying';
 import { haptics } from '@/ui/haptics';
 import { useIsWide } from '@/ui/layout';
 import { goBack, nav } from '@/ui/nav';
-import { dropScreenToast, showSheet } from '@/ui/overlay';
+import { dropScreenToast, showSheet, veilScreenToast } from '@/ui/overlay';
 import { ForceDark, makeStyles, radius, space, useColors, webLayer, withAlpha } from '@/ui/theme';
 import { spokenLabel } from '@/ui/a11y';
 
@@ -66,7 +66,9 @@ const dismiss = goBack;
 function settleSheet(y: SharedValue<number>, translationY: number, velocityY: number, screenH: number) {
   'worklet';
   if (translationY > DISMISS_DISTANCE || velocityY > 1100) {
-    // The route changes only after the slide-out; the player's own note goes with the sheet now.
+    // The route changes only after the slide-out; the player's own note goes with the sheet now: hidden on this
+    // thread at once, then dropped on JS.
+    veilScreenToast();
     scheduleOnRN(dropScreenToast);
     y.set(
       withTiming(screenH, { duration: 200, easing: Easing.out(Easing.quad) }, (done) => {

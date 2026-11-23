@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
 import { AccessibilityInfo, Platform } from 'react-native';
+import { makeMutable, withTiming } from 'react-native-reanimated';
 import { create } from 'zustand';
 
-import { dropsOnRouteChange } from './toast-scope';
+import { dropsOnRouteChange, ROUTE_CHANGE_GRACE_MS } from './toast-scope';
 
 export type ToastKind = 'info' | 'success' | 'error' | 'progress';
 /** Optional button on a toast (e.g. "Undo"). Pressing it dismisses the toast first, then runs `onPress`. */
@@ -45,7 +46,11 @@ export function showToast(text: ToastText, kind: ToastKind = 'info', action?: To
   clearTimeout(toastTimer);
   const id = ++seq;
   const { title: message, detail } = typeof text === 'string' ? { title: text, detail: undefined } : text;
-  useOverlay.setState({ toast: { id, message, detail, kind, action, at: Date.now() } });
+  const at = Date.now();
+  useOverlay.setState({ toast: { id, message, detail, kind, action, at } });
+  // What a dismiss gesture needs to hide this one on the UI thread (`veilScreenToast`): from when it may be dropped.
+  toastDropAt.set(dropsOnRouteChange({ kind, action, at }, at + ROUTE_CHANGE_GRACE_MS) ? at + ROUTE_CHANGE_GRACE_MS : Infinity);
+  toastVeil.set(0);
   // A live region on a freshly mounted view isn't announced reliably on Android; say it explicitly.
   const spoken = detail ? `${message}. ${detail}` : message;
   if (Platform.OS !== 'web') AccessibilityInfo.announceForAccessibility(action ? `${spoken}. ${action.label} available` : spoken);
@@ -58,6 +63,21 @@ export function showToast(text: ToastText, kind: ToastKind = 'info', action?: To
 export function dismissToast(id?: number) {
   const { toast } = useOverlay.getState();
   if (toast && (id === undefined || toast.id === id)) useOverlay.setState({ toast: null });
+}
+
+/**
+ * Hides the toast host (1) while a dropped toast leaves. Driven from the UI thread by a dismiss gesture
+ * (`veilScreenToast`): the JS drop came 0.35-0.7 s after the player sheet was gone, behind the busy JS thread of the
+ * dismiss, so "Added to queue" sat over the Home header. The next toast clears it.
+ */
+export const toastVeil = makeMutable(0);
+/** When (ms since epoch) the current toast may be dropped by leaving its screen; Infinity when it stays. */
+const toastDropAt = makeMutable(Number.POSITIVE_INFINITY);
+
+/** Worklet: a dismiss gesture committed; hide the screen's own note now (same rule as `dropScreenToast`). */
+export function veilScreenToast() {
+  'worklet';
+  if (Date.now() >= toastDropAt.get()) toastVeil.set(withTiming(1, { duration: 90 }));
 }
 
 /**
