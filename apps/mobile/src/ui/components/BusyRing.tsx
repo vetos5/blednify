@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { View } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
@@ -30,29 +31,33 @@ export function BusyRing({ size, stroke = 3, color }: { size: number; stroke?: n
   const spin = useAnimatedStyle(() => ({ transform: [{ rotate: `${turn.get() * 360}deg` }] }));
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
+  // Centred by a fill layer's flex alignment rather than left/top 50% with negative margins: on Android that put the
+  // ring ~9dp below the glyph in the mini player. Flex centring also holds when the ring is wider than the button.
   return (
-    <Animated.View
+    <View
       pointerEvents="none"
       accessible={false}
       importantForAccessibility="no-hide-descendants"
       aria-hidden
-      style={[styles.ring, { width: size, height: size, marginLeft: -size / 2, marginTop: -size / 2 }, spin]}>
-      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={color}
-          strokeWidth={stroke}
-          fill="none"
-          strokeLinecap="round"
-          strokeDasharray={`${c * 0.28} ${c}`}
-        />
-      </Svg>
-    </Animated.View>
+      style={styles.layer}>
+      <Animated.View style={[{ width: size, height: size }, spin]}>
+        <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            stroke={color}
+            strokeWidth={stroke}
+            fill="none"
+            strokeLinecap="round"
+            strokeDasharray={`${c * 0.28} ${c}`}
+          />
+        </Svg>
+      </Animated.View>
+    </View>
   );
 }
 
 const useStyles = makeStyles(() => ({
-  ring: { position: 'absolute', left: '50%', top: '50%' },
+  layer: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center' },
 }));
