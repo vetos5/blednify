@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 
-import { errorPlan, playButtonLabel, playButtonMode, publishedPlayState, stallAction } from '../src/core/player/stall';
+import {
+  errorPlan,
+  playButtonLabel,
+  playButtonMode,
+  publishedPlayState,
+  retrySeekMs,
+  stallAction,
+  statusSetsPosition,
+} from '../src/core/player/stall';
 
 const base = { current: true, nativePlaying: false, streams: true, quiet: true };
 
@@ -84,5 +92,26 @@ describe('playButtonMode / playButtonLabel', () => {
     expect(playButtonLabel(playButtonMode({ isPlaying: false, isBuffering: true, retrying: false }), false)).toBe('Loading, pause');
     expect(playButtonMode({ isPlaying: true, isBuffering: true, retrying: false })).toBe('pause');
     expect(playButtonMode({ isPlaying: false, isBuffering: false, retrying: false })).toBe('play');
+  });
+});
+
+describe('the place in a song survives a dropped connection', () => {
+  test('only a loaded player moves the published position', () => {
+    expect(statusSetsPosition({ isLoaded: true, seekGuarded: false })).toBe(true);
+    // Re-preparing after an error, or a rebuilt window not loaded yet: it reports 0.
+    expect(statusSetsPosition({ isLoaded: false, seekGuarded: false })).toBe(false);
+    expect(statusSetsPosition({ isLoaded: true, seekGuarded: true })).toBe(false);
+  });
+  test('a player that had loaded the song keeps its own position', () => {
+    expect(retrySeekMs({ curLoaded: true, pendingSeekMs: null, publishedMs: 198_000 })).toBeNull();
+  });
+  test('load at 3:18, error before it loaded, retry: seeks back to 3:18', () => {
+    // Pause then Play during an outage, or Play on a restored session with the server down.
+    expect(retrySeekMs({ curLoaded: false, pendingSeekMs: 198_000, publishedMs: 198_000 })).toBe(198_000);
+    // The pending seek was already handed to an earlier retry: the published position still holds the place.
+    expect(retrySeekMs({ curLoaded: false, pendingSeekMs: null, publishedMs: 198_000 })).toBe(198_000);
+  });
+  test('a song that was starting from the top needs no seek', () => {
+    expect(retrySeekMs({ curLoaded: false, pendingSeekMs: null, publishedMs: 0 })).toBeNull();
   });
 });

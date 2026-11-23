@@ -113,3 +113,33 @@ export function playButtonLabel(mode: PlayButtonMode, retrying: boolean): string
   if (mode === 'busy') return retrying ? 'Reconnecting, pause' : 'Loading, pause';
   return mode === 'pause' ? 'Pause' : 'Play';
 }
+
+/**
+ * Whether a native status may set the published position (and, through it, the saved one). Only a loaded player knows
+ * where the song is: one being re-prepared after an error, or a window rebuilt at a position that hasn't loaded yet,
+ * reports 0. Publishing that once lost the place in a song: Pause and Play during an outage reloaded it from the 0,
+ * and the song restarted from the top when the server came back. A seek still settling holds the position too.
+ */
+export function statusSetsPosition({ isLoaded, seekGuarded }: { isLoaded: boolean; seekGuarded: boolean }): boolean {
+  return isLoaded && !seekGuarded;
+}
+
+/**
+ * Where a retry in the same player (`retryInPlace`) must put the song, or null to leave it. A player that had loaded
+ * the song keeps its own position through an error (ExoPlayer re-prepares where it stopped). A window rebuilt for the
+ * song that failed before loading (Play after a pause during an outage, Play on a restored session while the server is
+ * down) sits at 0: the place is the seek still pending, or else the published position.
+ */
+export function retrySeekMs({
+  curLoaded,
+  pendingSeekMs,
+  publishedMs,
+}: {
+  curLoaded: boolean;
+  pendingSeekMs: number | null;
+  publishedMs: number;
+}): number | null {
+  if (pendingSeekMs !== null) return pendingSeekMs;
+  if (curLoaded) return null;
+  return publishedMs > 0 ? publishedMs : null;
+}

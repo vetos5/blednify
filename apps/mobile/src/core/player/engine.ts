@@ -55,7 +55,7 @@ import { shuffled } from '../util';
 import { lockArtwork, prefetchLockArtwork } from './lock-art';
 import { fromRow, toRow, type QueueRow } from './queue-rows';
 import { playerStore, progressStore } from './store';
-import { errorPlan, publishedPlayState, stallAction } from './stall';
+import { errorPlan, publishedPlayState, retrySeekMs, stallAction, statusSetsPosition } from './stall';
 import { backOnlineVerdict, LAN_REPROBE_MS, offlineVerdict, PROBE_TIMEOUT_MS, type NetState } from './reach';
 import { nextIndexIn, planTail, planWindow, prevIndexIn, resolveNativeMove, WINDOW_AHEAD, type Slot as WindowSlot } from './window';
 
@@ -754,7 +754,8 @@ function onStatus(s: NativeStatus) {
   const positionMs = Math.max(0, s.currentTime * 1000);
   if (seekGuard && (Math.abs(positionMs - seekGuard.ms) < SEEK_TOLERANCE_MS || Date.now() > seekGuard.until))
     seekGuard = null;
-  if (!seekGuard) setProgress(positionMs, s.duration > 0 ? s.duration * 1000 : (cur?.durationMs ?? 0));
+  if (statusSetsPosition({ isLoaded: s.isLoaded, seekGuarded: seekGuard !== null }))
+    setProgress(positionMs, s.duration > 0 ? s.duration * 1000 : (cur?.durationMs ?? 0));
 
   if (s.playing) {
     const d = s.currentTime - lastTimeS;
@@ -833,7 +834,9 @@ function isNetworkError(e: unknown): boolean {
 
 // --- Connection loss -------------------------------------------------------------------------
 // A dropped connection is not the song's fault: skipping would fail on every following song too and lose the
-// place in this one. Stay on it and reload from the same position until the network is back.
+// place in this one. Stay on it and reload from the same position until the network is back. The place survives
+// every step: only a loaded player's status moves the published position (`statusSetsPosition`), and a retry of a
+// window that never loaded seeks back to it (`retrySeekMs`).
 
 function cancelNetworkRetry() {
   if (netRetry?.timer) clearTimeout(netRetry.timer);
@@ -871,12 +874,14 @@ function retryInPlace(): boolean {
   }
   clearWatchdog();
   advancingTo = null;
-  pendingSeekMs = null;
+  // A window rebuilt at a position that failed before loading would come back at 0: seek once it loads, like `load`.
+  pendingSeekMs = retrySeekMs({ curLoaded, pendingSeekMs, publishedMs: progressStore.getState().positionMs });
+  if (pendingSeekMs !== null) guardSeek(pendingSeekMs);
   started = false;
   natReady = true;
   lastCommandAt = Date.now();
   editPlaylist(nat, [], null);
-  startNative();
+  if (pendingSeekMs === null) startNative();
   armWatchdog();
   return true;
 }
@@ -995,7 +1000,8 @@ function onPlaybackError(message: string, network = false, recreate = false, sto
   if (!recreate && !web && !retrying) errorsSincePlaying++;
   natBroken = broken;
   natReady = false;
-  pendingSeekMs = null;
+  // A retry still has to reach the place a load was heading for (`retryInPlace`); anything else moves on.
+  if (!retrying) pendingSeekMs = null;
   if (retrying) {
     waitForNetwork(message);
     return;
