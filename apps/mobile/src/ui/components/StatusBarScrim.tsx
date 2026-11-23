@@ -22,8 +22,10 @@ const TAIL_PX = 20;
 const TAIL_ALPHA = 0.5;
 const TAIL_ALPHA_OVER_BACKDROP = 0.12;
 const TAIL_ALPHA_OVER_COVER = 0.05;
-/** How long the copy stays mounted after scrolling back to the top, so flicking around the top doesn't remount it. */
+/** How long a lazy copy stays mounted after scrolling back to the top, so flicking around the top doesn't remount it. */
 const UNMOUNT_AFTER_MS = 1500;
+/** When a page's copy is mounted (invisible) after the page lays out: after its opening transition, before a fling. */
+const WARM_AFTER_MS = 400;
 
 /**
  * Scroll wiring for lists that can't take a Reanimated scroll handler (FlashList): a plain onScroll that feeds the
@@ -65,12 +67,21 @@ export function useScrimScroll(follow = 0): {
  *
  * Render it as a direct child of the screen root (the same box the background fills), so the copy lines up.
  *
- * The copy is mounted only while something is scrolled under the clock (it is fully transparent at the top anyway),
- * so a screen at rest, and the player on a song change, never pay for a second background (on the player a second
- * full-size blurred cover). It lingers briefly after returning to the top, so scrolling about the top doesn't remount
- * it every time.
+ * On a page the copy is mounted, fully transparent (nothing is drawn at opacity 0), shortly after the page lays out and
+ * stays: mounting it on the first scroll left a fast fling with the cover under the clock for a few frames, then a
+ * band too dark while the glow image decoded. With `lazy` (the player, whose copy is a second full-size blurred cover
+ * that would be redone on every song change) it is mounted only while something is scrolled under the clock and
+ * lingers briefly after returning to the top, so scrolling about the top doesn't remount it every time.
  */
-export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<number>; surface?: ReactNode }) {
+export function StatusBarScrim({
+  scrollY,
+  surface,
+  lazy = false,
+}: {
+  scrollY: SharedValue<number>;
+  surface?: ReactNode;
+  lazy?: boolean;
+}) {
   const styles = useStyles();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -82,8 +93,14 @@ export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<numb
     if (unmountTimer.current) clearTimeout(unmountTimer.current);
     unmountTimer.current = null;
     if (scrolled) setMounted(true);
-    else unmountTimer.current = setTimeout(() => setMounted(false), UNMOUNT_AFTER_MS);
-  }, []);
+    else if (lazy) unmountTimer.current = setTimeout(() => setMounted(false), UNMOUNT_AFTER_MS);
+  }, [lazy]);
+  const laidOut = rootH > 0;
+  useEffect(() => {
+    if (lazy || !laidOut) return;
+    const t = setTimeout(() => setMounted(true), WARM_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [lazy, laidOut]);
   useEffect(
     () => () => {
       if (unmountTimer.current) clearTimeout(unmountTimer.current);
@@ -114,7 +131,7 @@ export function StatusBarScrim({ scrollY, surface }: { scrollY: SharedValue<numb
       aria-hidden
       style={styles.root}
       onLayout={(e) => setRootH(Math.round(e.nativeEvent.layout.height))}>
-      {rootH > 0 && mounted ? (
+      {laidOut && mounted ? (
         <Animated.View
           // While it fades in, the band must blend in as one picture. Without an offscreen layer Android fades each
           // child on its own (bg, sky, cover, its veil), and the stack came out up to 12 levels darker than the page.

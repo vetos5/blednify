@@ -251,6 +251,7 @@ function PlayerScreenContent({ onSheetDownChange }: { onSheetDownChange: (down: 
       {page ? (
         <StatusBarScrim
           scrollY={scrollY}
+          lazy
           surface={<Backdrop uri={current?.artworkUri ?? null} />}
         />
       ) : null}
