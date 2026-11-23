@@ -7,9 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePlayer } from '@/core';
 
 import { HEADER_ROW_HEIGHT, PLAYER_BAR_HEIGHT, useIsWide } from '../layout';
-import { dismissToast, showToast, useOverlay, type ToastKind } from '../overlay';
+import { dismissToast, dropScreenToast, showToast, useOverlay, type ToastKind } from '../overlay';
 import { makeStyles, radius, space, useColors } from '../theme';
-import { dropsOnRouteChange } from '../toast-scope';
 import { Icon, type IconName } from './Icon';
 import { Text } from './Text';
 import { TopLayer } from './TopLayer';
@@ -88,7 +87,8 @@ export function ToastHost() {
 
 /**
  * Clears a screen's own note when the user leaves that screen ("Added to queue" raised on the player used to stay up
- * over the Home header after the player closed). See dropsOnRouteChange for which toasts stay.
+ * over the Home header after the player closed). See dropsOnRouteChange for which toasts stay; the player's pull-down
+ * drops them as soon as it commits (`dropScreenToast`), since the route changes only once the sheet is gone.
  */
 function useDropScreenToastsOnRouteChange() {
   const pathname = usePathname();
@@ -96,8 +96,7 @@ function useDropScreenToastsOnRouteChange() {
   useEffect(() => {
     if (last.current === pathname) return;
     last.current = pathname;
-    const { toast } = useOverlay.getState();
-    if (toast && dropsOnRouteChange(toast, Date.now())) dismissToast(toast.id);
+    dropScreenToast();
   }, [pathname]);
 }
 

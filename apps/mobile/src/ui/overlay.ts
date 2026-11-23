@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import { AccessibilityInfo, Platform } from 'react-native';
 import { create } from 'zustand';
 
+import { dropsOnRouteChange } from './toast-scope';
+
 export type ToastKind = 'info' | 'success' | 'error' | 'progress';
 /** Optional button on a toast (e.g. "Undo"). Pressing it dismisses the toast first, then runs `onPress`. */
 export type ToastAction = { label: string; onPress: () => void };
@@ -56,4 +58,13 @@ export function showToast(text: ToastText, kind: ToastKind = 'info', action?: To
 export function dismissToast(id?: number) {
   const { toast } = useOverlay.getState();
   if (toast && (id === undefined || toast.id === id)) useOverlay.setState({ toast: null });
+}
+
+/**
+ * The user is leaving the screen: drop its own note (see `dropsOnRouteChange`). Called on a route change, and when a
+ * dismiss gesture commits, so the note doesn't outlive a screen that is already sliding away.
+ */
+export function dropScreenToast() {
+  const { toast } = useOverlay.getState();
+  if (toast && dropsOnRouteChange(toast, Date.now())) dismissToast(toast.id);
 }
