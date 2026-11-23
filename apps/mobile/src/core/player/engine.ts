@@ -718,6 +718,7 @@ function load(idx: number, play: boolean, positionMs = 0) {
 
   pendingSeekMs = positionMs > 0 ? positionMs : null;
   if (pendingSeekMs !== null) guardSeek(pendingSeekMs);
+  seekNativeEarly();
   if (pendingSeekMs !== null && Platform.OS === 'web') {
     // The web backend applies a seek once metadata arrives, so play() can run now, inside the user's tap.
     void n.seekTo(pendingSeekMs / 1000);
@@ -730,6 +731,16 @@ function load(idx: number, play: boolean, positionMs = 0) {
     if (pendingSeekMs === null) startNative();
     armWatchdog();
   }
+}
+
+/**
+ * Hand the place a rebuilt window is heading for (`pendingSeekMs`) to native before it loads. ExoPlayer keeps a seek
+ * made while idle or preparing, so the lock screen and notification show the right position while it loads (they
+ * showed 0:00 through an outage while the app showed 2:18). The seek on load stays as the backup (see `onStatus`).
+ */
+function seekNativeEarly() {
+  if (pendingSeekMs === null || !nat || Platform.OS === 'web') return;
+  void nat.seekTo(pendingSeekMs / 1000).catch(() => undefined);
 }
 
 function stopAll() {
@@ -866,6 +877,11 @@ function onStatus(s: NativeStatus) {
   if (s.isLoaded && pendingSeekMs !== null) {
     const ms = pendingSeekMs;
     pendingSeekMs = null;
+    // Usually native is there already (the place was handed to it before the load, see `seekNativeEarly`).
+    if (Math.abs(s.currentTime * 1000 - ms) < SEEK_TOLERANCE_MS) {
+      if (wantPlay) startNative();
+      return;
+    }
     seekInFlight = true;
     void nat
       ?.seekTo(ms / 1000)
@@ -1046,6 +1062,7 @@ function retryInPlace(): boolean {
   natReady = true;
   lastCommandAt = Date.now();
   editPlaylist(nat, [], null);
+  seekNativeEarly();
   if (pendingSeekMs === null) startNative();
   armWatchdog();
   return true;
