@@ -62,22 +62,34 @@ export function useScrimScroll(follow = 0): {
       }
     },
   );
-  // FlashList calls this as a plain function with its own ref; the scroll view gets both refs. Stable per page (the
-  // list rebuilds its scroller when it changes).
+  // FlashList calls this as a plain function with its own ref, on every list render; the scroll view gets both refs
+  // through a stable callback (ScrollWithRefs), so the UI-thread scroll listener isn't re-registered on each render.
+  // Stable per page (the list rebuilds its scroller when it changes).
   const renderScrollComponent = useCallback<ScrollComponent>(
-    ({ ref, ...props }) => (
-      <ScrollView
-        {...props}
-        ref={(node) => {
-          scrollRef(node);
-          if (typeof ref === 'function') ref(node);
-          else if (ref) (ref as { current: ScrollNode | null }).current = node;
-        }}
-      />
-    ),
+    ({ ref, ...props }) => <ScrollWithRefs {...props} outerRef={ref} innerRef={scrollRef} />,
     [scrollRef],
   );
   return { scrollY, offsetY, renderScrollComponent };
+}
+
+function assignRef<T>(ref: Ref<T> | undefined, node: T | null) {
+  if (typeof ref === 'function') ref(node);
+  else if (ref) (ref as { current: T | null }).current = node;
+}
+
+function ScrollWithRefs({
+  outerRef,
+  innerRef,
+  ...props
+}: ScrollViewProps & { outerRef?: Ref<ScrollNode>; innerRef: (node: ScrollNode | null) => unknown }) {
+  const setRef = useCallback(
+    (node: ScrollNode | null) => {
+      innerRef(node);
+      assignRef(outerRef, node);
+    },
+    [outerRef, innerRef],
+  );
+  return <ScrollView {...props} ref={setRef} />;
 }
 
 /**
