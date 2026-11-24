@@ -25,6 +25,15 @@
         /* Avoid double-tap zoom without disabling pinch zoom. */
         touch-action: manipulation;
       }
+      /* The viewport takes overscroll-behavior from the root element only; body's value doesn't carry over.
+         Without this, a swipe between tabs on a page too short to scroll (Search) reaches the viewport: iOS
+         rubber-bands the whole app and Chromium can turn it into a history back/forward navigation.
+         Touch screens only, so desktop trackpads keep their swipe back/forward. */
+      @media (pointer: coarse) {
+        html {
+          overscroll-behavior: none;
+        }
+      }
       body {
         overflow: hidden;
         /* App feel: no rubber-band page bounce, tap flashes, text selection or link previews on long-press. */
