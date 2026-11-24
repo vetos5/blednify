@@ -152,3 +152,15 @@ export function retrySeekMs({
   if (curLoaded) return null;
   return publishedMs > 0 ? publishedMs : null;
 }
+
+/**
+ * Whether an error leaves the player parked until the server answers again, then re-prepared in place
+ * (`reviveWhenServerAnswers`). That is a dropped connection while the user doesn't want playback: a seek past what had
+ * buffered while paused in an outage fails without a retry. The lock screen, notification and media keys reach
+ * ExoPlayer through the media session, not through JS: a Play pressed there while the paused seek was still loading,
+ * or after it failed, left the idle player waiting on nothing and stuck at the error after the server came back.
+ * Re-prepared, it plays if that Play was pressed (JS takes it from the status) and otherwise waits, paused and loaded.
+ */
+export function parksUntilServerAnswers({ network, wantPlay, web }: { network: boolean; wantPlay: boolean; web: boolean }): boolean {
+  return network && !wantPlay && !web;
+}

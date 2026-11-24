@@ -58,7 +58,7 @@ import { autoplayWanted, planAutoplay, promoteAuto, restoredAutoFrom, shuffleCho
 import { lockArtwork, prefetchLockArtwork } from './lock-art';
 import { fromRow, toRow, type QueueRow } from './queue-rows';
 import { playerStore, progressStore } from './store';
-import { errorPlan, publishedPlayState, retrySeekMs, stallAction, statusSetsPosition } from './stall';
+import { errorPlan, parksUntilServerAnswers, publishedPlayState, retrySeekMs, stallAction, statusSetsPosition } from './stall';
 import { backOnlineVerdict, LAN_REPROBE_MS, offlineVerdict, PROBE_TIMEOUT_MS, probeRetriesNow, RETRY_PROBE_MS, type NetState } from './reach';
 import { nextIndexIn, planTail, planWindow, prevIndexIn, resolveNativeMove, WINDOW_AHEAD, type Slot as WindowSlot } from './window';
 
@@ -1058,7 +1058,7 @@ function retryAfterNetworkError() {
  * can't be reused (web, a player marked for recreation after a stall, or native is no longer on this song's slot);
  * the caller then reloads.
  */
-function retryInPlace(): boolean {
+function retryInPlace(play = true): boolean {
   const cur = entries[index];
   if (Platform.OS === 'web' || !nat || natBroken || awaitingClear || !cur || natUids[natCur] !== cur.uid) return false;
   try {
@@ -1076,9 +1076,51 @@ function retryInPlace(): boolean {
   lastCommandAt = Date.now();
   editPlaylist(nat, [], null);
   seekNativeEarly();
-  if (pendingSeekMs === null) startNative();
+  if (play && pendingSeekMs === null) startNative();
   armWatchdog();
   return true;
+}
+
+let parkedProbe: ReturnType<typeof setInterval> | null = null;
+
+function stopParkedProbe() {
+  if (parkedProbe) clearInterval(parkedProbe);
+  parkedProbe = null;
+}
+
+/**
+ * A dropped connection while paused (`parksUntilServerAnswers`): ask the server every RETRY_PROBE_MS whether it is
+ * back, and once it answers re-prepare the player in place without playing it (`retryInPlace(false)`). A Play pressed
+ * on the lock screen meanwhile is in native's play-when-ready, so the song then plays and `onStatus` takes it as an
+ * external Play; otherwise it waits paused, loaded where it was. Ends when anything else takes the player over
+ * (Play in the app, another song, a retry) or after NETWORK_GIVE_UP_MS.
+ */
+function reviveWhenServerAnswers() {
+  stopParkedProbe();
+  const uid = entries[index]?.uid;
+  const p = nat;
+  if (uid === undefined || !p) return;
+  const since = Date.now();
+  const parked = () => !natReady && !wantPlay && !netRetry && nat === p && !natBroken && entries[index]?.uid === uid;
+  let asking = false;
+  const probe = setInterval(() => {
+    if (asking) return;
+    if (parkedProbe !== probe || !parked() || Date.now() - since > NETWORK_GIVE_UP_MS) {
+      if (parkedProbe === probe) stopParkedProbe();
+      return;
+    }
+    asking = true;
+    void serverAnswers()
+      .then((ok) => {
+        if (!ok || parkedProbe !== probe || !parked()) return;
+        stopParkedProbe();
+        if (retryInPlace(false)) playerStore.setState({ error: null });
+      })
+      .finally(() => {
+        asking = false;
+      });
+  }, RETRY_PROBE_MS);
+  parkedProbe = probe;
 }
 
 /** The next entry after the current one that plays without the network (downloaded or on-device), if any. */
@@ -1212,8 +1254,10 @@ function onPlaybackError(message: string, network = false, recreate = false, sto
   // player that really hangs is caught by the watchdog (`recreate`). The web backend is always recreated.
   const web = Platform.OS === 'web';
   const { retrying, natBroken: broken } = errorPlan({ network, wantPlay: resume, recreate, web, errorsSincePlaying });
-  if (!recreate && !web && !retrying) errorsSincePlaying++;
-  natBroken = broken;
+  // Paused, a dropped connection waits for the server and is re-prepared in the same player, like a retry.
+  const parks = parksUntilServerAnswers({ network, wantPlay: resume, web });
+  if (!recreate && !web && !retrying && !parks) errorsSincePlaying++;
+  natBroken = broken && !parks;
   natReady = false;
   // A retry still has to reach the place a load was heading for (`retryInPlace`); anything else moves on.
   if (!retrying) pendingSeekMs = null;
@@ -1228,6 +1272,7 @@ function onPlaybackError(message: string, network = false, recreate = false, sto
   if (stop || !resume || errorStreak >= Math.min(MAX_ERROR_STREAK, entries.length) || ni === null) {
     wantPlay = false;
     playerStore.setState({ isPlaying: false });
+    if (parks) reviveWhenServerAnswers();
     return;
   }
   load(ni, true);

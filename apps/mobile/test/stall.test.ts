@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   errorPlan,
+  parksUntilServerAnswers,
   playButtonLabel,
   playButtonMode,
   publishedPlayState,
@@ -122,5 +123,16 @@ describe('the place in a song survives a dropped connection', () => {
   });
   test('a song that was starting from the top needs no seek', () => {
     expect(retrySeekMs({ curLoaded: false, pendingSeekMs: null, publishedMs: 0 })).toBeNull();
+  });
+});
+
+describe('parksUntilServerAnswers (a dropped connection while paused)', () => {
+  test('paused: wait for the server, then re-prepare (a lock-screen Play may be waiting on it)', () => {
+    expect(parksUntilServerAnswers({ network: true, wantPlay: false, web: false })).toBe(true);
+  });
+  test('playing: the retry loop owns it; not a network error, or web: nothing to wait for', () => {
+    expect(parksUntilServerAnswers({ network: true, wantPlay: true, web: false })).toBe(false);
+    expect(parksUntilServerAnswers({ network: false, wantPlay: false, web: false })).toBe(false);
+    expect(parksUntilServerAnswers({ network: true, wantPlay: false, web: true })).toBe(false);
   });
 });
